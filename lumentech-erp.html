@@ -26597,11 +26597,11 @@ const MENU_GRUPOS = [
   { tipo: 'item', id: 'estoque',    label: 'Estoque',           icon: 'package' },
   // Grupo FINANCEIRO
   { tipo: 'grupo', id: 'g_financeiro', label: 'Financeiro', icon: 'dollar', filhos: [
-    { id: 'centros-custo', label: 'Centro de custo', icon: 'database' },
-    { id: 'contas-pagar',  label: 'Contas a pagar', icon: 'dollar' },
-    { id: 'financeiro',    label: 'Contas a receber', icon: 'dollar' },
-    { id: 'fluxo-caixa',   label: 'Fluxo de caixa', icon: 'chart' },
-    { id: 'dre',           label: 'DRE', icon: 'chart' },
+    { id: 'centros-custo',  label: 'Centro de custo',  icon: 'database' },
+    { id: 'contas-pagar',   label: 'Contas a pagar',   icon: 'dollar' },
+    { id: 'contas-receber', label: 'Contas a receber', icon: 'dollar' },
+    { id: 'fluxo-caixa',    label: 'Fluxo de caixa',   icon: 'chart' },
+    { id: 'dre',            label: 'DRE',              icon: 'chart' },
   ]},
   { tipo: 'item', id: 'cadastros',  label: 'Cadastros gerais',  icon: 'database' },
   { tipo: 'item', id: 'relatorios', label: 'Relatórios',        icon: 'chart' },
@@ -29980,6 +29980,749 @@ if (typeof PAGES !== 'undefined') {
   PAGES['contas-pagar'] = renderContasPagar;
 }
 
+// =====================================================
+// CONTAS A RECEBER — Módulo espelhado no CP
+// =====================================================
+
+function statusContaReceber(c) {
+  if (c.status === 'Cancelada') return 'Cancelada';
+  const vp = Number(c.valorPago || c.valorRecebido || 0);
+  const v = Number(c.valor || 0);
+  if (vp >= v && v > 0) return 'Recebida';
+  if (vp > 0) return 'Parcial';
+  if (c.venc) {
+    const hoje = isoToday();
+    if (c.venc < hoje) return 'Vencida';
+    if (c.venc === hoje) return 'Vence hoje';
+  }
+  return 'A vencer';
+}
+
+function corStatusContaReceber(status) {
+  // Inversão semântica: recebida é positivo, vencida é negativo
+  switch (status) {
+    case 'Recebida':   return { fundo: '#2E7D3215', texto: '#2E7D32', borda: '#2E7D32' };
+    case 'Parcial':    return { fundo: '#ca8a0415', texto: '#a16207', borda: '#ca8a04' };
+    case 'Vencida':    return { fundo: '#B0241F15', texto: '#B0241F', borda: '#B0241F' };
+    case 'Vence hoje': return { fundo: '#ea580c15', texto: '#c2410c', borda: '#ea580c' };
+    case 'A vencer':   return { fundo: '#0369a115', texto: '#1E4F8F', borda: '#0369a1' };
+    case 'Cancelada':  return { fundo: '#80808015', texto: '#1A1A1A', borda: '#808080' };
+    default:           return { fundo: '#80808015', texto: '#1A1A1A', borda: '#808080' };
+  }
+}
+
+function saldoContaReceber(c) {
+  return Math.max(0, Number(c.valor || 0) - Number(c.valorPago || c.valorRecebido || 0));
+}
+
+// Estado de visualização
+let _crSubpage = 'dashboard';
+let _crFiltros = {
+  busca: '',
+  cliente: '',
+  centroCusto: '',
+  dataIni: '',
+  dataFim: '',
+  valorMin: '',
+  valorMax: '',
+};
+
+function renderContasReceber(parent) {
+  parent.innerHTML = '';
+  parent.appendChild(el(`
+    <div class="submodule-layout">
+      <div class="submenu" id="cr-submenu"></div>
+      <div class="submenu-content" id="cr-content"></div>
+    </div>
+  `));
+  renderCRSubmenu();
+  renderCRSubpage();
+}
+
+const CR_SUBMENU = [
+  { id: 'dashboard',  label: 'Dashboard',         icon: 'chart' },
+  { id: 'todas',      label: 'Todas as contas',   icon: 'dollar' },
+  { id: 'abertas',    label: 'Em aberto',         icon: 'clock' },
+  { id: 'vencidas',   label: 'Vencidas',          icon: 'alert' },
+  { id: 'parciais',   label: 'Recebimento parcial', icon: 'piechart' },
+  { id: 'recebidas',  label: 'Recebidas',         icon: 'check' },
+];
+
+function renderCRSubmenu() {
+  const menu = $('#cr-submenu');
+  if (!menu) return;
+  menu.innerHTML = '<div class="submenu-section">Contas a receber</div>';
+
+  const todas = DB.contasReceber.length;
+  const abertas = DB.contasReceber.filter(c => {
+    const s = statusContaReceber(c);
+    return s === 'A vencer' || s === 'Vence hoje';
+  }).length;
+  const vencidas = DB.contasReceber.filter(c => statusContaReceber(c) === 'Vencida').length;
+  const parciais = DB.contasReceber.filter(c => statusContaReceber(c) === 'Parcial').length;
+  const recebidas = DB.contasReceber.filter(c => statusContaReceber(c) === 'Recebida').length;
+
+  const counts = { dashboard: 0, todas, abertas, vencidas, parciais, recebidas };
+
+  CR_SUBMENU.forEach(s => {
+    const item = el(`
+      <div class="submenu-item ${s.id === _crSubpage ? 'active' : ''}">
+        ${ICONS[s.icon] || ICONS['dollar']}
+        <span class="submenu-label">${s.label}</span>
+        ${counts[s.id] > 0 ? `<span class="submenu-count">${counts[s.id]}</span>` : ''}
+      </div>
+    `);
+    item.onclick = () => { _crSubpage = s.id; renderCRSubmenu(); renderCRSubpage(); };
+    menu.appendChild(item);
+  });
+}
+
+function renderCRSubpage() {
+  const c = $('#cr-content');
+  if (!c) return;
+  c.innerHTML = '';
+  const wrap = el('<div class="fade-in"></div>');
+  c.appendChild(wrap);
+
+  if (_crSubpage === 'dashboard') return renderCRDashboard(wrap);
+
+  const filtros = {
+    todas:    () => true,
+    abertas:  (c) => { const s = statusContaReceber(c); return s === 'A vencer' || s === 'Vence hoje'; },
+    vencidas: (c) => statusContaReceber(c) === 'Vencida',
+    parciais: (c) => statusContaReceber(c) === 'Parcial',
+    recebidas:(c) => statusContaReceber(c) === 'Recebida',
+  };
+  renderCRListagem(wrap, filtros[_crSubpage] || filtros.todas);
+}
+
+function renderCRDashboard(parent) {
+  pageHead(parent, 'Contas a receber · <em>Dashboard</em>', 'Visão financeira de receitas',
+    `<button class="btn btn-primary btn-sm" onclick="abrirCadastroPagina('contas-receber', null)">${ICONS.plus} Nova conta</button>`);
+
+  const hoje = isoToday();
+  const todas = DB.contasReceber;
+
+  const totalAberto = todas.filter(c => statusContaReceber(c) !== 'Recebida' && statusContaReceber(c) !== 'Cancelada')
+    .reduce((s, c) => s + saldoContaReceber(c), 0);
+  const vencidas = todas.filter(c => statusContaReceber(c) === 'Vencida');
+  const totalVencido = vencidas.reduce((s, c) => s + saldoContaReceber(c), 0);
+  const venceHoje = todas.filter(c => statusContaReceber(c) === 'Vence hoje');
+  const total7d = todas.filter(c => {
+    const d = diasParaVencimento(c);
+    return d !== null && d >= 0 && d <= 7 && statusContaReceber(c) !== 'Recebida';
+  }).reduce((s, c) => s + saldoContaReceber(c), 0);
+
+  const inicioMes = hoje.slice(0, 7) + '-01';
+  const recebidoNoMes = todas.reduce((s, c) => {
+    return s + (c.pagamentos || c.recebimentos || []).filter(p => p.data >= inicioMes).reduce((sp, p) => sp + Number(p.valor || 0), 0);
+  }, 0);
+
+  parent.appendChild(el(`
+    <div class="kpi-grid" style="grid-template-columns:repeat(5,1fr)">
+      <div class="kpi">
+        <div class="kpi-lbl">Total a receber</div>
+        <div class="kpi-val"><span class="currency">R$</span>${fmt(totalAberto)}</div>
+        <div class="kpi-sub">${todas.filter(c => statusContaReceber(c) !== 'Recebida' && statusContaReceber(c) !== 'Cancelada').length} título(s)</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-lbl" style="color:#B0241F">● Vencidas</div>
+        <div class="kpi-val" style="color:#B0241F"><span class="currency">R$</span>${fmt(totalVencido)}</div>
+        <div class="kpi-sub">${vencidas.length} título(s) · inadimplência</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-lbl" style="color:#ea580c">● Vence hoje</div>
+        <div class="kpi-val"><span class="currency">R$</span>${fmt(venceHoje.reduce((s,c)=>s+saldoContaReceber(c),0))}</div>
+        <div class="kpi-sub">${venceHoje.length} título(s)</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-lbl">Próximos 7 dias</div>
+        <div class="kpi-val"><span class="currency">R$</span>${fmt(total7d)}</div>
+        <div class="kpi-sub">a receber</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-lbl" style="color:#2E7D32">● Recebido no mês</div>
+        <div class="kpi-val"><span class="currency">R$</span>${fmt(recebidoNoMes)}</div>
+        <div class="kpi-sub">${hoje.slice(0,7).split('-').reverse().join('/')}</div>
+      </div>
+    </div>
+  `));
+
+  // Alertas — Vencidas + Vence hoje
+  const alertas = [...vencidas, ...venceHoje];
+  if (alertas.length > 0) {
+    const sortedAlertas = alertas.sort((a, b) => (a.venc || '').localeCompare(b.venc || ''));
+    parent.appendChild(el(`
+      <div class="card" style="margin-top:14px;border-left:3px solid #B0241F">
+        <div class="card-head">
+          <h3 style="color:#B0241F">⚠ Inadimplência · ${alertas.length} título(s)</h3>
+          <button class="btn btn-secondary btn-sm" onclick="_crSubpage='vencidas';renderCRSubmenu();renderCRSubpage()">Ver vencidas</button>
+        </div>
+        <div class="card-body flush">
+          <table class="tbl">
+            <thead><tr><th>Cliente</th><th>Descrição</th><th>Vencimento</th><th>Dias</th><th class="num">Saldo</th><th></th></tr></thead>
+            <tbody>
+              ${sortedAlertas.slice(0, 8).map(c => {
+                const dias = diasParaVencimento(c);
+                return `
+                <tr>
+                  <td>${escapeHtml(c.cliente || '—')}</td>
+                  <td>${escapeHtml(c.desc || '—')}</td>
+                  <td class="num">${isoToBR(c.venc)}</td>
+                  <td><span style="color:${dias < 0 ? '#B0241F' : '#ea580c'}">${dias < 0 ? `${Math.abs(dias)}d atrasada` : 'hoje'}</span></td>
+                  <td class="num num-strong">${brl(saldoContaReceber(c))}</td>
+                  <td><button class="row-action-btn" onclick="abrirModalRecebimentoCR('${c.id}')" title="Registrar recebimento">${ICONS.dollar}</button></td>
+                </tr>
+              `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `));
+  }
+
+  // Por centro de custo (receita)
+  if (DB.centrosCusto && DB.centrosCusto.length) {
+    const porCentro = {};
+    todas.filter(c => statusContaReceber(c) !== 'Recebida' && statusContaReceber(c) !== 'Cancelada').forEach(c => {
+      const cc = c.centroCustoId || 'sem';
+      if (!porCentro[cc]) porCentro[cc] = 0;
+      porCentro[cc] += saldoContaReceber(c);
+    });
+    const entries = Object.entries(porCentro).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    if (entries.length > 0) {
+      parent.appendChild(el(`
+        <div class="card" style="margin-top:14px">
+          <div class="card-head"><h3>Receitas previstas por centro</h3></div>
+          <div class="card-body">
+            ${entries.map(([cc, v]) => {
+              const centro = (DB.centrosCusto || []).find(x => x.id === cc);
+              const nome = centro ? `${centro.codigo} — ${centro.nome}` : 'Sem centro';
+              const cor = centro?.cor || '#808080';
+              const pct = totalAberto > 0 ? (v / totalAberto * 100).toFixed(0) : 0;
+              return `
+                <div style="margin-bottom:10px">
+                  <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px">
+                    <span><span style="display:inline-block;width:8px;height:8px;background:${cor};border-radius:2px;margin-right:6px"></span>${escapeHtml(nome)}</span>
+                    <strong>${brl(v)} · ${pct}%</strong>
+                  </div>
+                  <div style="height:5px;background:var(--surface-2);border-radius:3px;overflow:hidden">
+                    <div style="height:100%;background:${cor};width:${pct}%"></div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `));
+    }
+  }
+}
+
+function renderCRListagem(parent, filtroFn) {
+  const titulos = {
+    todas:'Todas as contas a receber',
+    abertas:'Em aberto',
+    vencidas:'Vencidas',
+    parciais:'Recebimento parcial',
+    recebidas:'Recebidas',
+  };
+  pageHead(parent, titulos[_crSubpage] || 'Contas a receber', '',
+    `<button class="btn btn-secondary btn-sm" onclick="exportarContasReceberCSV()">${ICONS.download||''} Exportar CSV</button>
+     <button class="btn btn-primary btn-sm" onclick="abrirCadastroPagina('contas-receber', null)">${ICONS.plus} Nova conta</button>`);
+
+  // Filtros
+  const filtroCard = el(`
+    <div class="card" style="margin-bottom:14px"><div class="card-body">
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:10px;align-items:end">
+        <div class="fp-field" style="margin:0">
+          <label style="font-size:10px">Buscar</label>
+          <input type="text" id="cr-busca" value="${escapeHtml(_crFiltros.busca || '')}" placeholder="Cliente, descrição, ID...">
+        </div>
+        <div class="fp-field" style="margin:0">
+          <label style="font-size:10px">Centro de custo</label>
+          <select id="cr-cc">
+            <option value="">Todos</option>
+            ${(DB.centrosCusto || []).map(cc => `<option value="${cc.id}" ${_crFiltros.centroCusto === cc.id ? 'selected' : ''}>${escapeHtml(cc.codigo)} — ${escapeHtml(cc.nome)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="fp-field" style="margin:0">
+          <label style="font-size:10px">Vencimento de</label>
+          <input type="date" id="cr-dt-ini" value="${_crFiltros.dataIni || ''}">
+        </div>
+        <div class="fp-field" style="margin:0">
+          <label style="font-size:10px">até</label>
+          <input type="date" id="cr-dt-fim" value="${_crFiltros.dataFim || ''}">
+        </div>
+      </div>
+    </div></div>
+  `);
+  parent.appendChild(filtroCard);
+
+  filtroCard.querySelector('#cr-busca').oninput = (e) => { _crFiltros.busca = e.target.value; renderCRSubpage(); };
+  filtroCard.querySelector('#cr-cc').onchange = (e) => { _crFiltros.centroCusto = e.target.value; renderCRSubpage(); };
+  filtroCard.querySelector('#cr-dt-ini').onchange = (e) => { _crFiltros.dataIni = e.target.value; renderCRSubpage(); };
+  filtroCard.querySelector('#cr-dt-fim').onchange = (e) => { _crFiltros.dataFim = e.target.value; renderCRSubpage(); };
+
+  let lista = DB.contasReceber.filter(filtroFn);
+  if (_crFiltros.busca) {
+    const q = _crFiltros.busca.toLowerCase();
+    lista = lista.filter(c => (c.cliente || '').toLowerCase().includes(q) || (c.desc || '').toLowerCase().includes(q) || c.id.toLowerCase().includes(q));
+  }
+  if (_crFiltros.centroCusto) lista = lista.filter(c => c.centroCustoId === _crFiltros.centroCusto);
+  if (_crFiltros.dataIni) lista = lista.filter(c => c.venc >= _crFiltros.dataIni);
+  if (_crFiltros.dataFim) lista = lista.filter(c => c.venc <= _crFiltros.dataFim);
+
+  if (lista.length === 0) {
+    parent.appendChild(el('<div class="card"></div>')).appendChild(
+      emptyState('dollar', 'Nenhuma conta aqui', 'Receitas aparecem aqui automaticamente quando pedidos são aprovados pelo financeiro, ou cadastre manualmente.', 'Nova conta', () => abrirCadastroPagina('contas-receber', null))
+    );
+    return;
+  }
+
+  // Resumo da listagem
+  const totalLista = lista.reduce((s, c) => s + Number(c.valor || 0), 0);
+  const recebidoLista = lista.reduce((s, c) => s + Number(c.valorPago || c.valorRecebido || 0), 0);
+  const saldoLista = lista.reduce((s, c) => s + saldoContaReceber(c), 0);
+
+  parent.appendChild(el(`
+    <div style="display:flex;gap:18px;padding:10px 14px;background:var(--surface-2);border-radius:8px;margin-bottom:12px;font-size:12px">
+      <div><strong>${lista.length}</strong> título(s)</div>
+      <div>Total: <strong>${brl(totalLista)}</strong></div>
+      <div>Recebido: <strong style="color:#2E7D32">${brl(recebidoLista)}</strong></div>
+      <div>Saldo: <strong>${brl(saldoLista)}</strong></div>
+    </div>
+  `));
+
+  // Ordenar por vencimento ascendente
+  lista = [...lista].sort((a, b) => (a.venc || '').localeCompare(b.venc || ''));
+
+  parent.appendChild(el(`
+    <div class="card"><div class="card-body flush">
+      <table class="tbl">
+        <thead><tr>
+          <th>ID</th>
+          <th>Cliente</th>
+          <th>Descrição</th>
+          <th>Centro de custo</th>
+          <th>Vencimento</th>
+          <th>Status</th>
+          <th class="num">Valor</th>
+          <th class="num">Recebido</th>
+          <th class="num">Saldo</th>
+          <th></th>
+        </tr></thead>
+        <tbody>
+          ${lista.map(c => {
+            const status = statusContaReceber(c);
+            const cor = corStatusContaReceber(status);
+            const cc = c.centroCustoId ? (DB.centrosCusto || []).find(x => x.id === c.centroCustoId) : null;
+            return `
+              <tr>
+                <td class="num"><strong style="font-size:11.5px">${c.id}</strong>${c.parcela?`<div style="font-size:10px;color:var(--muted)">${c.parcela}</div>`:''}</td>
+                <td>${escapeHtml(c.cliente || '—')}${c.pedidoId?`<div style="font-size:10px;color:var(--muted)">${c.pedidoId}</div>`:''}</td>
+                <td>${escapeHtml(c.desc || '—')}</td>
+                <td>${cc?`<span style="font-size:10px;padding:2px 6px;background:${cc.cor}15;color:${cc.cor};border-radius:3px;font-weight:500">${escapeHtml(cc.codigo)}</span>`:'<span style="color:var(--muted-2)">—</span>'}</td>
+                <td class="num">${isoToBR(c.venc)}</td>
+                <td><span style="font-size:10.5px;padding:2px 7px;background:${cor.fundo};color:${cor.texto};border-radius:3px;font-weight:500">${status}</span></td>
+                <td class="num">${brl(c.valor||0)}</td>
+                <td class="num">${brl(c.valorPago||c.valorRecebido||0)}</td>
+                <td class="num num-strong">${brl(saldoContaReceber(c))}</td>
+                <td>
+                  <div style="display:flex;gap:4px">
+                    ${status !== 'Recebida' && status !== 'Cancelada' ? `<button class="row-action-btn" title="Registrar recebimento" onclick="abrirModalRecebimentoCR('${c.id}')">${ICONS.dollar}</button>` : ''}
+                    <button class="row-action-btn" title="Editar" onclick="abrirCadastroPagina('contas-receber','${c.id}')">${ICONS.edit}</button>
+                    ${isUsuarioAdmin() ? `<button class="row-action-btn" title="Excluir" onclick="excluirContaReceber('${c.id}')" style="color:#B0241F">${ICONS.trash}</button>` : ''}
+                  </div>
+                </td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div></div>
+  `));
+}
+
+// Modal de registro de recebimento
+function abrirModalRecebimentoCR(id) {
+  const c = DB.contasReceber.find(x => x.id === id);
+  if (!c) return;
+  const saldo = saldoContaReceber(c);
+  const m = openModal({
+    title: `Recebimento · ${c.id}`,
+    size: 'md',
+    body: `
+      <div style="padding:10px 12px;background:var(--surface-2);border-radius:6px;margin-bottom:14px;font-size:12px">
+        <div><strong>${escapeHtml(c.cliente||'—')}</strong></div>
+        <div style="margin-top:2px;color:var(--muted)">${escapeHtml(c.desc||'')}</div>
+        <div style="margin-top:6px;display:flex;justify-content:space-between">
+          <span>Valor total: <strong>${brl(c.valor||0)}</strong></span>
+          <span>Saldo: <strong style="color:#B0241F">${brl(saldo)}</strong></span>
+        </div>
+      </div>
+      <div class="fp-grid-2">
+        <div class="fp-field">
+          <label>Valor recebido (R$) *</label>
+          <input type="number" step="0.01" id="rcb-valor" value="${saldo.toFixed(2)}">
+        </div>
+        <div class="fp-field">
+          <label>Data do recebimento *</label>
+          <input type="date" id="rcb-data" value="${isoToday()}">
+        </div>
+      </div>
+      <div class="fp-grid-2">
+        <div class="fp-field">
+          <label>Forma de recebimento</label>
+          <select id="rcb-forma">
+            ${['Pix','Boleto','Cartão de Crédito','Cartão de Débito','Transferência Bancária','Dinheiro','Cheque'].map(f => `<option ${c.forma===f?'selected':''}>${f}</option>`).join('')}
+          </select>
+        </div>
+        <div class="fp-field">
+          <label>Banco / Conta</label>
+          <input type="text" id="rcb-banco" value="${escapeHtml(c.banco||'')}" placeholder="Ex: Itaú conta corrente">
+        </div>
+      </div>
+      <div class="fp-field">
+        <label>Observação</label>
+        <textarea id="rcb-obs" rows="2" placeholder="Ex: Cliente quitou via Pix conforme combinado"></textarea>
+      </div>
+    `,
+    footer: `
+      <button class="btn btn-secondary" id="rcb-cancel">Cancelar</button>
+      <button class="btn btn-primary" id="rcb-save">Registrar recebimento</button>
+    `
+  });
+  m.root.querySelector('#rcb-cancel').onclick = () => m.close();
+  m.root.querySelector('#rcb-save').onclick = () => {
+    const v = +m.root.querySelector('#rcb-valor').value || 0;
+    if (v <= 0) { toast('Informe o valor', 'danger'); return; }
+    if (v > saldo + 0.01) { toast(`Valor maior que o saldo (${brl(saldo)})`, 'danger'); return; }
+    if (!Array.isArray(c.pagamentos)) c.pagamentos = c.recebimentos || [];
+    c.pagamentos.push({
+      data: m.root.querySelector('#rcb-data').value,
+      valor: v,
+      forma: m.root.querySelector('#rcb-forma').value,
+      banco: m.root.querySelector('#rcb-banco').value.trim(),
+      obs: m.root.querySelector('#rcb-obs').value.trim(),
+      usuario: getUsuarioAtualNome(),
+    });
+    c.valorPago = (Number(c.valorPago || c.valorRecebido || 0)) + v;
+    if (c.valorPago >= Number(c.valor||0) - 0.01) {
+      c.recebidoEm = m.root.querySelector('#rcb-data').value;
+      c.status = 'Recebido';
+    }
+    saveDB();
+    m.close();
+    toast(`Recebimento de ${brl(v)} registrado`, 'success');
+    renderPage(currentPage);
+  };
+}
+
+// Excluir conta a receber (admin)
+function excluirContaReceber(id) {
+  if (!isUsuarioAdmin()) { toast('Apenas administradores podem excluir', 'danger'); return; }
+  const c = DB.contasReceber.find(x => x.id === id);
+  if (!c) return;
+  confirmAction({
+    title: `Excluir ${c.id}?`,
+    message: `<p>Excluir conta <strong>${escapeHtml(c.cliente||'—')}</strong> · ${brl(c.valor||0)}?</p>${c.pedidoId?`<p style="font-size:11.5px;color:var(--muted);margin-top:8px">⚠ Vinculada ao pedido ${c.pedidoId} — o pedido NÃO será afetado.</p>`:''}`,
+    danger: true,
+    onConfirm: () => {
+      DB.contasReceber = DB.contasReceber.filter(x => x.id !== id);
+      saveDB();
+      toast(`Conta ${id} excluída`, 'success');
+      renderPage(currentPage);
+    }
+  });
+}
+
+// Form de criação/edição
+function renderFormContaReceber(id) {
+  const editing = id ? DB.contasReceber.find(c => c.id === id) : null;
+  const host = $('#cad-form-host');
+  if (!host) return;
+
+  const clientesSugestoes = (DB.clientes || []).map(c => c.nome);
+
+  host.innerHTML = `
+    <div class="fp-grid-main">
+      <div class="fp-col-main">
+        <div class="fp-card">
+          <h3 class="fp-card-title">Dados da receita</h3>
+          <div class="fp-field">
+            <label>Descrição *</label>
+            <input type="text" id="crf-desc" value="${editing ? escapeHtml(editing.desc || '') : ''}" placeholder="Ex: Venda de iluminação, prestação de serviço, comissão recebida" autofocus>
+          </div>
+          <div class="fp-grid-2">
+            <div class="fp-field">
+              <label>Cliente</label>
+              <input type="text" id="crf-cli" value="${editing ? escapeHtml(editing.cliente || '') : ''}" placeholder="Nome do cliente" list="crf-cli-list">
+              <datalist id="crf-cli-list">
+                ${clientesSugestoes.map(n => `<option value="${escapeHtml(n)}">`).join('')}
+              </datalist>
+            </div>
+            <div class="fp-field">
+              <label>Centro de custo (receita)</label>
+              ${typeof selectCentroCustoHtml === 'function' ? selectCentroCustoHtml(editing?.centroCustoId, 'receita').replace('class="cc-select"', 'id="crf-cc"') : '<select id="crf-cc"><option value="">—</option></select>'}
+            </div>
+          </div>
+          <div class="fp-field">
+            <label>Pedido vinculado (opcional)</label>
+            <select id="crf-pedido">
+              <option value="">— Sem vínculo —</option>
+              ${(DB.pedidos||[]).map(p => `<option value="${p.id}" ${editing?.pedidoId===p.id?'selected':''}>${p.id} · ${escapeHtml(p.cliente||'')} · ${brl(p.valor||0)}</option>`).join('')}
+            </select>
+            <div class="fp-hint">Vincule a um pedido pra rastreabilidade financeiro ↔ comercial</div>
+          </div>
+          <div class="fp-field">
+            <label>Observações</label>
+            <textarea id="crf-obs" rows="2" placeholder="Notas internas, número do orçamento, contrato...">${editing ? escapeHtml(editing.obs || '') : ''}</textarea>
+          </div>
+        </div>
+
+        <div class="fp-card">
+          <h3 class="fp-card-title">Valor e vencimento</h3>
+          <div class="fp-grid-2">
+            <div class="fp-field">
+              <label>Valor total (R$) *</label>
+              <input type="number" id="crf-valor" step="0.01" value="${editing?.valor || ''}" placeholder="0,00">
+            </div>
+            <div class="fp-field">
+              <label>${editing ? 'Vencimento *' : 'Vencimento da 1ª parcela *'}</label>
+              <input type="date" id="crf-venc" value="${editing?.venc || isoToday()}">
+            </div>
+          </div>
+          ${!editing ? `
+            <div class="fp-grid-2">
+              <div class="fp-field">
+                <label>Parcelas</label>
+                <select id="crf-num-parc">
+                  ${Array.from({length: 36}, (_, i) => i + 1).map(n => `<option value="${n}">${n}× ${n > 1 ? '(parcelado)' : '(à vista)'}</option>`).join('')}
+                </select>
+                <div class="fp-hint">Cada parcela gera uma conta separada</div>
+              </div>
+              <div class="fp-field">
+                <label>Intervalo entre parcelas (dias)</label>
+                <input type="number" id="crf-intervalo" value="30" min="1" max="365">
+              </div>
+            </div>
+          ` : ''}
+          <div class="fp-grid-2">
+            <div class="fp-field">
+              <label>Forma de recebimento prevista</label>
+              <select id="crf-forma">
+                ${['','Pix','Boleto','Cartão de Crédito','Cartão de Débito','Transferência Bancária','Dinheiro','Cheque'].map(f => `<option value="${f}" ${editing?.forma===f?'selected':''}>${f||'— Selecione —'}</option>`).join('')}
+              </select>
+            </div>
+            <div class="fp-field">
+              <label>Banco / Conta</label>
+              <input type="text" id="crf-banco" value="${editing?escapeHtml(editing.banco||''):''}" placeholder="Ex: Itaú · Conta corrente">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      ${editing ? `
+      <div class="fp-col-side">
+        <div class="fp-card">
+          <h3 class="fp-card-title">Status</h3>
+          <div class="fp-summary-mini">
+            <div class="fp-sm-row">
+              <span>Status atual</span>
+              <strong style="color:${corStatusContaReceber(statusContaReceber(editing)).texto}">${statusContaReceber(editing)}</strong>
+            </div>
+            <div class="fp-sm-row">
+              <span>Valor</span>
+              <strong>${brl(editing.valor||0)}</strong>
+            </div>
+            <div class="fp-sm-row">
+              <span>Já recebido</span>
+              <strong style="color:#2E7D32">${brl(editing.valorPago||editing.valorRecebido||0)}</strong>
+            </div>
+            <div class="fp-sm-row">
+              <span>Saldo</span>
+              <strong>${brl(saldoContaReceber(editing))}</strong>
+            </div>
+          </div>
+          ${statusContaReceber(editing) !== 'Recebida' && statusContaReceber(editing) !== 'Cancelada' ? `
+            <button class="btn btn-primary btn-sm" style="width:100%;margin-top:12px" onclick="abrirModalRecebimentoCR('${editing.id}')">${ICONS.dollar} Registrar recebimento</button>
+          ` : ''}
+        </div>
+        ${(editing.pagamentos||editing.recebimentos||[]).length > 0 ? `
+          <div class="fp-card">
+            <h3 class="fp-card-title">Recebimentos</h3>
+            ${(editing.pagamentos||editing.recebimentos||[]).map(p => `
+              <div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:11.5px">
+                <div style="display:flex;justify-content:space-between">
+                  <strong>${brl(p.valor||0)}</strong>
+                  <span style="color:var(--muted)">${isoToBR(p.data)}</span>
+                </div>
+                <div style="color:var(--muted);font-size:10.5px;margin-top:2px">${escapeHtml(p.forma||'')}${p.banco?` · ${escapeHtml(p.banco)}`:''}</div>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+      </div>
+      ` : ''}
+    </div>
+  `;
+
+  // Bind do botão Salvar (que está no header da página de cadastro)
+  const btnSave = $('#cad-pg-save');
+  if (btnSave) btnSave.onclick = () => {
+    const desc = host.querySelector('#crf-desc').value.trim();
+    const valor = +host.querySelector('#crf-valor').value || 0;
+    const venc = host.querySelector('#crf-venc').value;
+    if (!desc) { toast('Informe a descrição', 'danger'); return; }
+    if (valor <= 0) { toast('Informe o valor', 'danger'); return; }
+    if (!venc) { toast('Informe o vencimento', 'danger'); return; }
+
+    const cli = host.querySelector('#crf-cli').value.trim();
+    // Tenta resolver clienteId pelo nome
+    const cliMatch = (DB.clientes||[]).find(c => c.nome === cli);
+
+    const baseData = {
+      cliente: cli,
+      clienteId: cliMatch?.id || null,
+      centroCustoId: host.querySelector('#crf-cc').value || null,
+      pedidoId: host.querySelector('#crf-pedido').value || null,
+      obs: host.querySelector('#crf-obs').value.trim(),
+      forma: host.querySelector('#crf-forma').value,
+      banco: host.querySelector('#crf-banco').value.trim(),
+    };
+
+    if (editing) {
+      editing.desc = desc;
+      editing.valor = valor;
+      editing.venc = venc;
+      Object.assign(editing, baseData);
+      saveDB();
+      toast('Conta atualizada');
+      voltarCadastroLista('contas-receber');
+      return;
+    }
+
+    const n = +host.querySelector('#crf-num-parc').value || 1;
+    const intervalo = +host.querySelector('#crf-intervalo').value || 30;
+    const porParcela = +(valor / n).toFixed(2);
+    const dt = new Date(venc);
+
+    for (let i = 0; i < n; i++) {
+      const d = new Date(dt);
+      d.setDate(d.getDate() + (i * intervalo));
+      const valorParc = (i === n - 1)
+        ? +(valor - (porParcela * (n - 1))).toFixed(2)
+        : porParcela;
+      const conta = {
+        id: nextId('cr', 'CR'),
+        desc: n > 1 ? `${desc} (${i+1}/${n})` : desc,
+        valor: valorParc,
+        venc: d.toISOString().slice(0, 10),
+        parcela: n > 1 ? `${i+1}/${n}` : null,
+        status: 'A vencer',
+        valorPago: 0,
+        pagamentos: [],
+        criadoEm: new Date().toISOString(),
+        ...baseData,
+      };
+      DB.contasReceber.push(conta);
+    }
+
+    saveDB();
+    if (n > 1) toast(`${n} parcelas criadas (${brl(porParcela)} cada)`);
+    else toast('Conta cadastrada');
+    voltarCadastroLista('contas-receber');
+  };
+}
+
+// Exportar CSV
+function exportarContasReceberCSV() {
+  if (!DB.contasReceber.length) { toast('Sem contas pra exportar', 'info'); return; }
+  const rows = [['ID','Descrição','Cliente','Pedido','Centro de custo','Vencimento','Valor','Recebido','Saldo','Status','Forma','Banco','Observações']];
+  DB.contasReceber.forEach(c => {
+    const cc = c.centroCustoId ? (DB.centrosCusto || []).find(x => x.id === c.centroCustoId) : null;
+    rows.push([
+      c.id, c.desc || '', c.cliente || '', c.pedidoId || '',
+      cc ? `${cc.codigo} - ${cc.nome}` : '',
+      c.venc || '',
+      (c.valor || 0).toFixed(2).replace('.', ','),
+      (c.valorPago || c.valorRecebido || 0).toFixed(2).replace('.', ','),
+      saldoContaReceber(c).toFixed(2).replace('.', ','),
+      statusContaReceber(c),
+      c.forma || '', c.banco || '', c.obs || '',
+    ]);
+  });
+  const csv = rows.map(r => r.map(x => `"${String(x).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob(['\ufeff' + csv], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `contas-receber-${isoToday()}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+  toast(`${DB.contasReceber.length} contas exportadas`, 'success');
+}
+
+// Registrar no router
+if (typeof PAGES !== 'undefined') {
+  PAGES['contas-receber'] = renderContasReceber;
+}
+
+// Registrar abrirCadastroPagina pra Contas a Receber
+if (typeof window !== 'undefined') {
+  const _origAbrir = window.abrirCadastroPagina;
+  window.abrirCadastroPagina = function(tipo, id, subtipo) {
+    if (tipo === 'contas-receber') {
+      const main = $('#content') || document.body;
+      main.innerHTML = '';
+      const wrap = el(`
+        <div class="fade-in">
+          <div class="cad-pg" id="cad-pg">
+            <div class="cad-pg-head">
+              <div class="cad-pg-bread">
+                <span class="cad-pg-link" onclick="voltarCadastroLista('contas-receber')">${ICONS['arrow-left']||'←'} Voltar</span>
+                <span style="color:var(--muted);margin:0 6px">·</span>
+                <span>Financeiro</span>
+                <span style="color:var(--muted);margin:0 6px">›</span>
+                <span style="color:var(--muted)">Contas a receber</span>
+              </div>
+              <div class="cad-pg-actions">
+                <button class="btn btn-secondary btn-sm" onclick="voltarCadastroLista('contas-receber')">Cancelar</button>
+                <button class="btn btn-primary btn-sm" id="cad-pg-save">${ICONS.check} ${id ? 'Salvar alterações' : 'Cadastrar'}</button>
+              </div>
+            </div>
+            <div id="cad-form-host" class="cad-form-host"></div>
+          </div>
+        </div>
+      `);
+      main.appendChild(wrap);
+      renderFormContaReceber(id);
+      return;
+    }
+    return _origAbrir.apply(this, arguments);
+  };
+
+  const _origVoltar = window.voltarCadastroLista;
+  window.voltarCadastroLista = function (tipo) {
+    if (tipo === 'contas-receber') {
+      setHash(`#/contas-receber`);
+      if (currentPage !== 'contas-receber') navigate('contas-receber');
+      else renderPage('contas-receber');
+      return;
+    }
+    return _origVoltar.apply(this, arguments);
+  };
+}
+
+// Configuração do cadastro
+if (typeof CADASTRO_CONFIG !== 'undefined') {
+  CADASTRO_CONFIG['contas-receber'] = {
+    titulo: 'Conta a receber',
+    plural: 'Contas a receber',
+    icon: 'dollar',
+  };
+}
+
 if (typeof CADASTRO_CONFIG !== 'undefined') {
   CADASTRO_CONFIG['contas-pagar'] = {
     titulo: 'Conta a pagar',
@@ -31855,6 +32598,17 @@ document.getElementById('login-form').addEventListener('submit', (e) => {
   window.renderNav();
   navigate('dashboard');
 });
+// =====================================================
+// PATCH: Registrar todas as rotas do módulo financeiro no RENDERERS global
+// (PAGES não é uma global no sistema atual — o roteador real é RENDERERS)
+// =====================================================
+if (typeof RENDERERS !== 'undefined') {
+  RENDERERS['centros-custo']  = renderCentrosCusto;
+  RENDERERS['contas-pagar']   = renderContasPagar;
+  RENDERERS['contas-receber'] = renderContasReceber;
+  RENDERERS['fluxo-caixa']    = renderFluxoCaixa;
+  RENDERERS['dre']            = renderDRE;
+}
 </script>
 </body>
 </html>
