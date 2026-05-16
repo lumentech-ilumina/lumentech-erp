@@ -36,6 +36,10 @@ function loadDB() {
     if (!Array.isArray(merged.creditosCliente)) merged.creditosCliente = [];
     if (!Array.isArray(merged.prestacoesContas)) merged.prestacoesContas = [];
     if (!Array.isArray(merged.movimentacoes)) merged.movimentacoes = [];
+    // Suprimentos
+    if (!Array.isArray(merged.patrimonios)) merged.patrimonios = [];
+    if (!Array.isArray(merged.impostos)) merged.impostos = [];
+    if (!Array.isArray(merged.followUp)) merged.followUp = [];
     // Counters compatibility
     merged.counters = { ...def.counters, ...(saved.counters || {}) };
     return merged;
@@ -86,7 +90,11 @@ function defaultDB() {
     usuarios: defaultUsuarios(),                    // [{id, nome, email, telefone, cargo, setor, foto, login, senhaHash, perfilId, ativo, ultimoAcesso, criadoEm}]
     perfisAcesso: defaultPerfisAcesso(),            // [{id, nome, descricao, padrao, permissoes:{modulo:{ver,criar,editar,excluir,aprovar}}}]
     logsAcesso: [],                                 // [{id, usuarioId, acao, modulo, detalhe, data, ip}]
-    counters: { cli:1, orc:1, ped:1, op:1, os:1, exp:1, sku:1, cp:1, cr:1, nfs:1, prod:1, mov:1, lote:1, dep:1, end:1, pc:1, inv:1, tr:1, par:1, int:1, opp:1, task:1, auto:1, cat:1, marca:1, fab:1, forn:1, usu:1, perf:1, log:1, veic:1, med:1, vend:1 },
+    // Suprimentos
+    patrimonios: [],                                // [{id, codigo, nome, tipo, valorAquisicao, dataAquisicao, fornecedor, localizacao, responsavel, nf, status, observacoes, criadoEm}]
+    impostos: [],                                   // [{id, nome, tipo, aliquota, ncm, cfop, descricao, ativo}]
+    followUp: [],                                   // [{id, ordemCompraId, ordemCompraNumero, fornecedor, statusAtual, dataPrevista, observacao, contatoEm, contatoPor, criadoEm}]
+    counters: { cli:1, orc:1, ped:1, op:1, os:1, exp:1, sku:1, cp:1, cr:1, nfs:1, prod:1, mov:1, lote:1, dep:1, end:1, pc:1, inv:1, tr:1, par:1, int:1, opp:1, task:1, auto:1, cat:1, marca:1, fab:1, forn:1, usu:1, perf:1, log:1, veic:1, med:1, vend:1, pat:1, imp:1, fup:1 },
   };
 }
 
@@ -114,7 +122,7 @@ function defaultUsuarios() {
     setor: 'Administrativo',
     foto: '',
     login: 'ronyelrick@gmail.com',
-    senhaHash: '********',
+    senhaHash: '',
     perfilId: 'pf_admin',
     ativo: true,
     ultimoAcesso: new Date().toISOString(),
@@ -362,7 +370,8 @@ function defaultFunis() {
     },
   ];
 }
-let DB = loadDB();
+var DB = loadDB();
+window.DB = DB;
 function nextId(key, prefix, digits = 4) {
   const n = DB.counters[key] || 1;
   DB.counters[key] = n + 1;

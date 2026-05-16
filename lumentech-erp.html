@@ -14,6 +14,8 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <!-- QR Code generator (renderiza QR do Pix) -->
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+<!-- Supabase JS SDK -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -106,7 +108,9 @@
 <div id="modal-root"></div>
 <div id="toast-stack" class="toast-stack"></div>
 
+<script src="js/supabase-client.js"></script>
 <script src="js/db.js"></script>
+<script src="js/repo.js"></script>
 <script src="js/auth.js"></script>
 <script>
 const ICONS = {
@@ -4196,24 +4200,155 @@ async function buscarCEP(cep) {
 async function buscarCNPJ(cnpj) {
   cnpj = onlyDigits(cnpj);
   if (cnpj.length !== 14) return null;
-  try {
-    const r = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
-    if (!r.ok) return null;
-    const d = await r.json();
-    return {
-      razaoSocial: d.razao_social || '',
-      nomeFantasia: d.nome_fantasia || d.razao_social || '',
-      cep: d.cep || '',
-      logradouro: d.logradouro || '',
-      numero: d.numero || '',
-      complemento: d.complemento || '',
-      bairro: d.bairro || '',
-      municipio: d.municipio || '',
-      uf: d.uf || '',
-      telefone: d.ddd_telefone_1 || '',
-      email: d.email || '',
-    };
-  } catch (e) { return null; }
+  // Provider chain: BrasilAPI (rápido, sem chave) -> publica.cnpj.ws (fallback público)
+  const providers = [
+    async () => {
+      const r = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
+      if (!r.ok) throw new Error('BrasilAPI HTTP ' + r.status);
+      const d = await r.json();
+      return {
+        razaoSocial: d.razao_social || '',
+        nomeFantasia: d.nome_fantasia || d.razao_social || '',
+        cep: d.cep || '',
+        logradouro: d.logradouro || '',
+        numero: d.numero || '',
+        complemento: d.complemento || '',
+        bairro: d.bairro || '',
+        municipio: d.municipio || '',
+        uf: d.uf || '',
+        telefone: d.ddd_telefone_1 || '',
+        email: d.email || '',
+        situacao: d.descricao_situacao_cadastral || '',
+      };
+    },
+    async () => {
+      const r = await fetch(`https://publica.cnpj.ws/cnpj/${cnpj}`);
+      if (!r.ok) throw new Error('cnpj.ws HTTP ' + r.status);
+      const d = await r.json();
+      const e = d.estabelecimento || {};
+      const tel1 = (e.ddd1 || '') + (e.telefone1 || '');
+      return {
+        razaoSocial: d.razao_social || '',
+        nomeFantasia: e.nome_fantasia || d.razao_social || '',
+        cep: e.cep || '',
+        logradouro: ((e.tipo_logradouro || '') + ' ' + (e.logradouro || '')).trim(),
+        numero: e.numero || '',
+        complemento: e.complemento || '',
+        bairro: e.bairro || '',
+        municipio: e.cidade?.nome || '',
+        uf: e.estado?.sigla || '',
+        telefone: tel1,
+        email: e.email || '',
+        situacao: e.situacao_cadastral || '',
+      };
+    },
+  ];
+  let lastErr = null;
+  for (const p of providers) {
+    try {
+      return await p();
+    } catch (e) {
+      lastErr = e;
+      console.warn('Provider CNPJ falhou, tentando próximo:', e.message);
+    }
+  }
+  console.error('Todos os providers de CNPJ falharam:', lastErr);
+  return null;
+}
+
+// Helper visual de "loading" para inputs durante busca em API.
+function _setInputBusy(inp, busy) {
+  if (!inp) return;
+  if (busy) {
+    inp.dataset._origBorder = inp.style.borderColor || '';
+    inp.dataset._origBg = inp.style.backgroundColor || '';
+    inp.style.borderColor = 'var(--accent, #d97706)';
+    inp.style.backgroundColor = 'rgba(217,119,6,.06)';
+    inp.setAttribute('aria-busy', 'true');
+  } else {
+    inp.style.borderColor = inp.dataset._origBorder || '';
+    inp.style.backgroundColor = inp.dataset._origBg || '';
+    inp.removeAttribute('aria-busy');
+  }
+}
+
+// Liga busca automática de CNPJ a um input: dispara em input (debounced) e blur.
+// onResult(data, input) recebe o resultado normalizado de buscarCNPJ.
+function setupAutoCNPJ(input, onResult, opts = {}) {
+  if (!input || input._lumentechCnpjBound) return;
+  input._lumentechCnpjBound = true;
+  applyMask(input, maskCNPJ);
+  let timer = null;
+  let lastDigits = '';
+  const trigger = async (force = false) => {
+    const v = onlyDigits(input.value);
+    if (v.length !== 14) return;
+    if (!force && v === lastDigits) return;
+    lastDigits = v;
+    if (!validarCNPJ(v)) { toast('CNPJ inválido', 'danger'); return; }
+    _setInputBusy(input, true);
+    if (opts.toast !== false) toast('Buscando dados da empresa...', 'info');
+    try {
+      const data = await buscarCNPJ(v);
+      if (data) {
+        await onResult(data, input);
+        if (opts.toast !== false) toast('Dados preenchidos automaticamente');
+      } else {
+        toast('CNPJ não localizado — preencha manualmente', 'info');
+      }
+    } catch (e) {
+      console.error('Erro na busca de CNPJ:', e);
+      toast('Falha ao consultar CNPJ', 'danger');
+    } finally {
+      _setInputBusy(input, false);
+    }
+  };
+  input.addEventListener('input', () => {
+    if (timer) clearTimeout(timer);
+    const v = onlyDigits(input.value);
+    if (v.length === 14) timer = setTimeout(() => trigger(false), 350);
+  });
+  input.addEventListener('blur', () => trigger(false));
+  return { trigger: () => trigger(true) };
+}
+
+// Liga busca automática de CEP a um input: dispara em input (debounced) e blur.
+// onResult(data, input) recebe { rua, bairro, cidade, uf, complemento } de buscarCEP.
+function setupAutoCEP(input, onResult, opts = {}) {
+  if (!input || input._lumentechCepBound) return;
+  input._lumentechCepBound = true;
+  applyMask(input, maskCEP);
+  let timer = null;
+  let lastDigits = '';
+  const trigger = async (force = false) => {
+    const v = onlyDigits(input.value);
+    if (v.length !== 8) return;
+    if (!force && v === lastDigits) return;
+    lastDigits = v;
+    _setInputBusy(input, true);
+    if (opts.toast !== false) toast('Buscando endereço...', 'info');
+    try {
+      const data = await buscarCEP(v);
+      if (data) {
+        await onResult(data, input);
+        if (opts.toast !== false) toast('Endereço preenchido');
+      } else {
+        toast('CEP não encontrado', 'danger');
+      }
+    } catch (e) {
+      console.error('Erro na busca de CEP:', e);
+      toast('Falha ao consultar CEP', 'danger');
+    } finally {
+      _setInputBusy(input, false);
+    }
+  };
+  input.addEventListener('input', () => {
+    if (timer) clearTimeout(timer);
+    const v = onlyDigits(input.value);
+    if (v.length === 8) timer = setTimeout(() => trigger(false), 300);
+  });
+  input.addEventListener('blur', () => trigger(false));
+  return { trigger: () => trigger(true) };
 }
 
 // ==== Submenu CRM ====
@@ -4572,30 +4707,18 @@ function openClienteModal(id, tipoForce) {
   });
 
   if (isPJ) {
-    const cnpjInput = m.root.querySelector('#f-cnpj');
-    applyMask(cnpjInput, maskCNPJ);
-    cnpjInput.addEventListener('blur', async () => {
-      const v = onlyDigits(cnpjInput.value);
-      if (v.length === 14) {
-        if (!validarCNPJ(v)) { toast('CNPJ inválido', 'danger'); return; }
-        toast('Buscando dados da empresa...', 'info');
-        const data = await buscarCNPJ(v);
-        if (data) {
-          m.root.querySelector('#f-razao').value = data.razaoSocial;
-          m.root.querySelector('#f-fantasia').value = data.nomeFantasia;
-          if (data.cep) m.root.querySelector('#f-cep').value = maskCEP(data.cep);
-          if (data.logradouro) m.root.querySelector('#f-endereco').value = data.logradouro;
-          if (data.numero) m.root.querySelector('#f-numero').value = data.numero;
-          if (data.bairro) m.root.querySelector('#f-bairro').value = data.bairro;
-          if (data.municipio) m.root.querySelector('#f-cidade').value = data.municipio;
-          if (data.uf) m.root.querySelector('#f-uf').value = data.uf;
-          if (data.telefone) m.root.querySelector('#f-telefone').value = maskPhone(data.telefone);
-          if (data.email) m.root.querySelector('#f-email').value = data.email;
-          toast('Dados preenchidos automaticamente');
-        } else {
-          toast('CNPJ não localizado — preencha manualmente', 'info');
-        }
-      }
+    setupAutoCNPJ(m.root.querySelector('#f-cnpj'), (data) => {
+      const set = (sel, val) => { const el = m.root.querySelector(sel); if (el && val) el.value = val; };
+      set('#f-razao', data.razaoSocial);
+      set('#f-fantasia', data.nomeFantasia);
+      set('#f-cep', data.cep ? maskCEP(data.cep) : '');
+      set('#f-endereco', data.logradouro);
+      set('#f-numero', data.numero);
+      set('#f-bairro', data.bairro);
+      set('#f-cidade', data.municipio);
+      set('#f-uf', data.uf);
+      set('#f-telefone', data.telefone ? maskPhone(data.telefone) : '');
+      set('#f-email', data.email);
     });
   } else {
     const cpfInput = m.root.querySelector('#f-cpf');
@@ -4616,28 +4739,15 @@ function openClienteModal(id, tipoForce) {
     if (inp) applyMask(inp, maskPhone);
   });
 
-  const cepInput = m.root.querySelector('#f-cep');
-  if (cepInput) {
-    applyMask(cepInput, maskCEP);
-    cepInput.addEventListener('blur', async () => {
-      const v = onlyDigits(cepInput.value);
-      if (v.length === 8) {
-        toast('Buscando endereço...', 'info');
-        const data = await buscarCEP(v);
-        if (data) {
-          m.root.querySelector('#f-endereco').value = data.rua;
-          m.root.querySelector('#f-bairro').value = data.bairro;
-          m.root.querySelector('#f-cidade').value = data.cidade;
-          m.root.querySelector('#f-uf').value = data.uf;
-          toast('Endereço preenchido');
-          const numInp = m.root.querySelector('#f-numero');
-          if (numInp) numInp.focus();
-        } else {
-          toast('CEP não encontrado', 'danger');
-        }
-      }
-    });
-  }
+  setupAutoCEP(m.root.querySelector('#f-cep'), (data) => {
+    const set = (sel, val) => { const el = m.root.querySelector(sel); if (el && val) el.value = val; };
+    set('#f-endereco', data.rua);
+    set('#f-bairro', data.bairro);
+    set('#f-cidade', data.cidade);
+    set('#f-uf', data.uf);
+    const numInp = m.root.querySelector('#f-numero');
+    if (numInp) numInp.focus();
+  });
 
   m.root.querySelector('#m-cancel').onclick = () => m.close();
   m.root.querySelector('#m-save').onclick = () => salvarCliente(m, editing, tipo);
@@ -5386,19 +5496,11 @@ function openParceiroModal(id) {
     const inp = m.root.querySelector('#' + id);
     if (inp) applyMask(inp, maskPhone);
   });
-  const cepInput = m.root.querySelector('#f-cep');
-  applyMask(cepInput, maskCEP);
-  cepInput.addEventListener('blur', async () => {
-    const v = onlyDigits(cepInput.value);
-    if (v.length === 8) {
-      const data = await buscarCEP(v);
-      if (data) {
-        m.root.querySelector('#f-endereco').value = data.rua;
-        m.root.querySelector('#f-bairro').value = data.bairro;
-        m.root.querySelector('#f-cidade').value = data.cidade + '/' + data.uf;
-        toast('Endereço preenchido');
-      }
-    }
+  setupAutoCEP(m.root.querySelector('#f-cep'), (data) => {
+    const set = (sel, val) => { const el = m.root.querySelector(sel); if (el && val) el.value = val; };
+    set('#f-endereco', data.rua);
+    set('#f-bairro', data.bairro);
+    set('#f-cidade', data.cidade + '/' + data.uf);
   });
   const docInput = m.root.querySelector('#f-doc');
   docInput.addEventListener('input', () => {
@@ -6925,24 +7027,14 @@ function renderOrcamentoPage() {
   };
 
   // CEP automático no endereço de entrega
-  const cepInp = document.getElementById('f-end-cep');
-  applyMask(cepInp, maskCEP);
-  cepInp.addEventListener('blur', async () => {
-    const v = onlyDigits(cepInp.value);
-    if (v.length === 8) {
-      toast('Buscando CEP...', 'info');
-      const data = await buscarCEP(v);
-      if (data) {
-        document.getElementById('f-end-rua').value = data.rua;
-        document.getElementById('f-end-bairro').value = data.bairro;
-        document.getElementById('f-end-cidade').value = data.cidade;
-        document.getElementById('f-end-uf').value = data.uf;
-        toast('Endereço preenchido');
-        document.getElementById('f-end-numero').focus();
-      } else {
-        toast('CEP não encontrado', 'danger');
-      }
-    }
+  setupAutoCEP(document.getElementById('f-end-cep'), (data) => {
+    const set = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+    set('f-end-rua', data.rua);
+    set('f-end-bairro', data.bairro);
+    set('f-end-cidade', data.cidade);
+    set('f-end-uf', data.uf);
+    const numEl = document.getElementById('f-end-numero');
+    if (numEl) numEl.focus();
   });
 
   // ============ MÚLTIPLAS FORMAS DE PAGAMENTO ============
@@ -14331,6 +14423,37 @@ function renderFornAbaContent() {
     anexos: renderFornAbaAnexos,
   };
   (renderers[_fornAbaAtiva] || renderers.geral)(c);
+
+  // Auto-busca CNPJ no input (sem precisar clicar na lupa)
+  const cnpjInp = c.querySelector('#ff-cnpj');
+  if (cnpjInp) setupAutoCNPJ(cnpjInp, (data) => {
+    capturarDadosForn();
+    _fornForm.cnpj = cnpjInp.value;
+    _fornForm.razaoSocial = data.razaoSocial || _fornForm.razaoSocial;
+    _fornForm.nomeFantasia = data.nomeFantasia || _fornForm.nomeFantasia;
+    _fornForm.cep = data.cep || _fornForm.cep;
+    _fornForm.endereco = data.logradouro || _fornForm.endereco;
+    _fornForm.numero = data.numero || _fornForm.numero;
+    _fornForm.complemento = data.complemento || _fornForm.complemento;
+    _fornForm.bairro = data.bairro || _fornForm.bairro;
+    _fornForm.cidade = data.municipio || _fornForm.cidade;
+    _fornForm.uf = data.uf || _fornForm.uf;
+    _fornForm.telefone = data.telefone || _fornForm.telefone;
+    _fornForm.email = data.email || _fornForm.email;
+    _fornForm.situacaoCadastral = data.situacao || _fornForm.situacaoCadastral;
+    renderFornAbaContent();
+  });
+
+  // Auto-busca CEP no input
+  const cepInp = c.querySelector('#ff-cep');
+  if (cepInp) setupAutoCEP(cepInp, (data) => {
+    capturarDadosForn();
+    _fornForm.endereco = data.rua || _fornForm.endereco;
+    _fornForm.bairro = data.bairro || _fornForm.bairro;
+    _fornForm.cidade = data.cidade || _fornForm.cidade;
+    _fornForm.uf = data.uf || _fornForm.uf;
+    renderFornAbaContent();
+  });
 }
 
 // ============ ABA: GERAL ============
@@ -14546,9 +14669,9 @@ async function buscarFornCep() {
     const d = await buscarCEP(cep);
     if (!d) { toast('CEP não encontrado', 'danger'); return; }
     capturarDadosForn();
-    _fornForm.endereco = d.logradouro || _fornForm.endereco;
+    _fornForm.endereco = d.rua || _fornForm.endereco;
     _fornForm.bairro = d.bairro || _fornForm.bairro;
-    _fornForm.cidade = d.localidade || _fornForm.cidade;
+    _fornForm.cidade = d.cidade || _fornForm.cidade;
     _fornForm.uf = d.uf || _fornForm.uf;
     renderFornAbaContent();
     toast('Endereço carregado');
@@ -15348,7 +15471,7 @@ function abrirUsuarioModal(id) {
   });
 
   m.root.querySelector('#uf-cancel').onclick = () => m.close();
-  m.root.querySelector('#uf-save').onclick = () => {
+  m.root.querySelector('#uf-save').onclick = async () => {
     const nome = m.root.querySelector('#uf-nome').value.trim();
     const email = m.root.querySelector('#uf-email').value.trim();
     const senha = m.root.querySelector('#uf-senha').value;
@@ -15360,35 +15483,39 @@ function abrirUsuarioModal(id) {
     // Email duplicado?
     const dup = DB.usuarios.find(u => u.email === email && u.id !== editing?.id);
     if (dup) { toast('E-mail já cadastrado', 'danger'); return; }
-    if (!editing && !senha) { toast('Defina uma senha inicial', 'danger'); return; }
     if (senha && senha.length < 6) { toast('Senha deve ter ao menos 6 caracteres', 'danger'); return; }
     if (senha && senha !== senha2) { toast('As senhas não coincidem', 'danger'); return; }
 
-    const data = {
-      id: editing?.id || nextId('usu', 'USR'),
-      nome, email, telefone: m.root.querySelector('#uf-tel').value.trim(),
-      cargo: m.root.querySelector('#uf-cargo').value.trim(),
-      setor: m.root.querySelector('#uf-setor').value.trim(),
-      foto,
-      login: email,
-      senhaHash: senha ? senha : (editing?.senhaHash || ''),
-      perfilId: m.root.querySelector('#uf-perfil').value,
-      ativo: m.root.querySelector('#uf-ativo').value === '1',
-      ultimoAcesso: editing?.ultimoAcesso || null,
-      criadoEm: editing?.criadoEm || new Date().toISOString(),
-      admin: editing?.admin || false,
-    };
-    if (editing) {
-      DB.usuarios[DB.usuarios.findIndex(u => u.id === editing.id)] = data;
-      registrarLog('Usuário editado', 'usuarios', `${data.nome}`);
-    } else {
-      DB.usuarios.push(data);
-      registrarLog('Usuário criado', 'usuarios', `${data.nome}`);
+    // Criação de novos usuários exige edge function com service_role (Fase 2).
+    if (!editing) {
+      toast('Crie novos usuários pelo painel Supabase (em breve direto daqui).', 'warning');
+      return;
     }
-    saveDB();
-    toast(editing?'Usuário atualizado':'Usuário criado');
-    m.close();
-    renderUsuSubpage();
+    if (senha) {
+      toast('Redefinir senha pelo painel ainda não disponível — peça reset via Supabase.', 'warning');
+    }
+
+    const patch = {
+      nome, email,
+      telefone: m.root.querySelector('#uf-tel').value.trim(),
+      cargo:    m.root.querySelector('#uf-cargo').value.trim(),
+      setor:    m.root.querySelector('#uf-setor').value.trim(),
+      foto,
+      perfilId: m.root.querySelector('#uf-perfil').value,
+      ativo:    m.root.querySelector('#uf-ativo').value === '1',
+    };
+    try {
+      const atualizado = await repo.usuarios.update(editing.id, patch);
+      const idx = DB.usuarios.findIndex(u => u.id === editing.id);
+      if (idx >= 0) DB.usuarios[idx] = { ...DB.usuarios[idx], ...atualizado };
+      repo.logs.push({ usuarioId: window.CURRENT_USER?.id, acao: 'Usuário editado', modulo: 'usuarios', detalhe: atualizado.nome })
+        .catch(err => console.warn('log falhou:', err));
+      toast('Usuário atualizado');
+      m.close();
+      renderUsuSubpage();
+    } catch (err) {
+      toast('Falha ao salvar: ' + (err.message || err), 'danger');
+    }
   };
 }
 
@@ -15420,14 +15547,21 @@ function removerFotoUsuario() {
   document.querySelector('#uf-foto-prev').innerHTML = '<div style="font-family:var(--serif);font-size:42px;color:var(--muted-2)">?</div>';
 }
 
-function toggleUsuario(id) {
+async function toggleUsuario(id) {
   const u = DB.usuarios.find(x => x.id === id);
   if (!u || u.admin) return;
-  u.ativo = u.ativo === false ? true : false;
-  saveDB();
-  registrarLog(u.ativo?'Usuário ativado':'Usuário desativado', 'usuarios', u.nome);
-  toast(u.ativo?'Usuário ativado':'Usuário desativado');
-  renderUsuSubpage();
+  const novoAtivo = u.ativo === false;
+  try {
+    const atualizado = await repo.usuarios.setAtivo(id, novoAtivo);
+    const idx = DB.usuarios.findIndex(x => x.id === id);
+    if (idx >= 0) DB.usuarios[idx] = { ...DB.usuarios[idx], ...atualizado };
+    repo.logs.push({ usuarioId: window.CURRENT_USER?.id, acao: novoAtivo?'Usuário ativado':'Usuário desativado', modulo: 'usuarios', detalhe: u.nome })
+      .catch(err => console.warn('log falhou:', err));
+    toast(novoAtivo?'Usuário ativado':'Usuário desativado');
+    renderUsuSubpage();
+  } catch (err) {
+    toast('Falha: ' + (err.message || err), 'danger');
+  }
 }
 
 function deletarUsuario(id) {
@@ -15435,13 +15569,18 @@ function deletarUsuario(id) {
   if (!u || u.admin) return;
   confirmAction({
     title: 'Excluir usuário?',
-    message: `${u.nome} (${u.email}). Esta ação não pode ser desfeita.`,
-    onConfirm: () => {
-      DB.usuarios = DB.usuarios.filter(x => x.id !== id);
-      saveDB();
-      registrarLog('Usuário excluído', 'usuarios', u.nome);
-      toast('Usuário excluído', 'danger');
-      renderUsuSubpage();
+    message: `${u.nome} (${u.email}). Apenas remove o perfil de aplicação — o login do Supabase Auth precisa ser removido pelo painel.`,
+    onConfirm: async () => {
+      try {
+        await repo.usuarios.delete(id);
+        DB.usuarios = DB.usuarios.filter(x => x.id !== id);
+        repo.logs.push({ usuarioId: window.CURRENT_USER?.id, acao: 'Usuário excluído', modulo: 'usuarios', detalhe: u.nome })
+          .catch(err => console.warn('log falhou:', err));
+        toast('Usuário excluído', 'danger');
+        renderUsuSubpage();
+      } catch (err) {
+        toast('Falha ao excluir: ' + (err.message || err), 'danger');
+      }
     }
   });
 }
@@ -15588,21 +15727,26 @@ function abrirPerfilModal(id) {
   };
 
   m.root.querySelector('#pf-cancel').onclick = () => m.close();
-  m.root.querySelector('#pf-save').onclick = () => {
+  m.root.querySelector('#pf-save').onclick = async () => {
     if (!perfil.sistema) {
       perfil.nome = m.root.querySelector('#pf-nome').value.trim();
       if (!perfil.nome) { toast('Informe o nome', 'danger'); return; }
     }
     perfil.descricao = m.root.querySelector('#pf-desc').value.trim();
-    if (editing) {
-      DB.perfisAcesso[DB.perfisAcesso.findIndex(p => p.id === editing.id)] = perfil;
-    } else {
-      DB.perfisAcesso.push(perfil);
+    try {
+      const salvo = await repo.perfis.upsert(perfil);
+      if (editing) {
+        const idx = DB.perfisAcesso.findIndex(p => p.id === editing.id);
+        if (idx >= 0) DB.perfisAcesso[idx] = salvo;
+      } else {
+        DB.perfisAcesso.push(salvo);
+      }
+      toast(editing?'Permissões atualizadas':'Perfil criado');
+      m.close();
+      renderUsuSubpage();
+    } catch (err) {
+      toast('Falha ao salvar perfil: ' + (err.message || err), 'danger');
     }
-    saveDB();
-    toast(editing?'Permissões atualizadas':'Perfil criado');
-    m.close();
-    renderUsuSubpage();
   };
 }
 
@@ -15611,11 +15755,15 @@ function deletarPerfil(id) {
   if (!p || p.sistema) { toast('Perfis do sistema não podem ser excluídos', 'danger'); return; }
   confirmAction({
     title: 'Excluir perfil?',
-    onConfirm: () => {
-      DB.perfisAcesso = DB.perfisAcesso.filter(x => x.id !== id);
-      saveDB();
-      toast('Perfil excluído', 'danger');
-      renderUsuSubpage();
+    onConfirm: async () => {
+      try {
+        await repo.perfis.delete(id);
+        DB.perfisAcesso = DB.perfisAcesso.filter(x => x.id !== id);
+        toast('Perfil excluído', 'danger');
+        renderUsuSubpage();
+      } catch (err) {
+        toast('Falha ao excluir perfil: ' + (err.message || err), 'danger');
+      }
     }
   });
 }
@@ -15736,29 +15884,38 @@ function limparLogs() {
   confirmAction({
     title: 'Limpar todos os logs?',
     message: 'Todo o histórico de acessos será removido. Esta ação não pode ser desfeita.',
-    onConfirm: () => {
-      DB.logsAcesso = [];
-      saveDB();
-      toast('Logs limpos');
-      renderUsuSubpage();
+    onConfirm: async () => {
+      try {
+        await repo.logs.clear();
+        DB.logsAcesso = [];
+        toast('Logs limpos');
+        renderUsuSubpage();
+      } catch (err) {
+        toast('Falha ao limpar logs: ' + (err.message || err), 'danger');
+      }
     }
   });
 }
 
 // Helper para registrar log (chamado por outros módulos)
 function registrarLog(acao, modulo, detalhe) {
-  const user = DB.usuarios.find(u => u.admin) || DB.usuarios[0];
+  const user = window.CURRENT_USER || DB.usuarios.find(u => u.admin) || DB.usuarios[0];
   if (!user) return;
-  DB.logsAcesso.push({
+  const entry = {
     id: nextId('log','LOG'),
     usuarioId: user.id,
     acao,
     modulo: modulo || '',
     detalhe: detalhe || '',
     data: new Date().toISOString(),
-  });
-  // Limita a 5000 entradas
-  if (DB.logsAcesso.length > 5000) DB.logsAcesso = DB.logsAcesso.slice(-5000);
+  };
+  DB.logsAcesso.unshift(entry);
+  if (window.repo && window.supabaseClient) {
+    window.repo.logs.push({ usuarioId: user.id, acao, modulo, detalhe })
+      .catch(err => console.warn('log remoto falhou:', err));
+  }
+  // Limita a 5000 entradas (mais recentes ficam no topo via unshift)
+  if (DB.logsAcesso.length > 5000) DB.logsAcesso = DB.logsAcesso.slice(0, 5000);
   // Atualiza últimoAcesso
   user.ultimoAcesso = new Date().toISOString();
 }
@@ -16759,9 +16916,9 @@ async function buscarCepOS() {
     const d = await buscarCEP(cep);
     if (!d) return;
     capturarDadosOS();
-    _osForm.endereco = d.logradouro || _osForm.endereco;
+    _osForm.endereco = d.rua || _osForm.endereco;
     _osForm.bairro = d.bairro || _osForm.bairro;
-    _osForm.cidade = d.localidade || _osForm.cidade;
+    _osForm.cidade = d.cidade || _osForm.cidade;
     _osForm.uf = d.uf || _osForm.uf;
     renderOSAbaContent();
     toast('Endereço carregado');
@@ -22752,6 +22909,13 @@ const MENU_GRUPOS = [
   { tipo: 'separador', label: 'Administração' },
   { tipo: 'item', id: 'produtos',   label: 'Produtos',          icon: 'box' },
   { tipo: 'item', id: 'estoque',    label: 'Estoque',           icon: 'package' },
+  // Grupo SUPRIMENTOS
+  { tipo: 'grupo', id: 'g_suprimentos', label: 'Suprimentos', icon: 'truck-2', filhos: [
+    { id: 'sup-ordens-compra', label: 'Ordens de compra', icon: 'clipboard' },
+    { id: 'sup-followup',      label: 'Follow up',        icon: 'clock' },
+    { id: 'sup-patrimonio',    label: 'Patrimônio',       icon: 'box' },
+    { id: 'sup-impostos',      label: 'Impostos',         icon: 'receipt' },
+  ]},
   // Grupo FINANCEIRO
   { tipo: 'grupo', id: 'g_financeiro', label: 'Financeiro', icon: 'dollar', filhos: [
     { id: 'centros-custo',  label: 'Centro de custo',  icon: 'database' },
@@ -23602,41 +23766,24 @@ function renderFormClientesPagina(id, subtipoForce) {
 }
 
 function configurarFormCliente(host, isPJ, editing) {
+  const setField = (sel, val) => {
+    const el = host.querySelector(sel);
+    if (el && val) el.value = val;
+  };
+
   if (isPJ) {
-    const cnpjInput = host.querySelector('#f-cnpj');
-    if (cnpjInput) {
-      applyMask(cnpjInput, maskCNPJ);
-      cnpjInput.addEventListener('blur', async () => {
-        const v = onlyDigits(cnpjInput.value);
-        if (v.length === 14) {
-          if (!validarCNPJ(v)) { toast('CNPJ inválido', 'danger'); return; }
-          toast('Buscando dados...', 'info');
-          const data = await buscarCNPJ(v);
-          if (data) {
-            host.querySelector('#f-nome').value = data.razao_social || '';
-            const fantasia = host.querySelector('#f-fantasia');
-            if (fantasia) fantasia.value = data.nome_fantasia || '';
-            const ie = host.querySelector('#f-ie');
-            if (ie && data.inscricao_estadual) ie.value = data.inscricao_estadual;
-            const cep = host.querySelector('#f-cep');
-            if (cep && data.cep) {
-              cep.value = data.cep.replace(/(\d{5})(\d{3})/, '$1-$2');
-            }
-            const rua = host.querySelector('#f-endereco');
-            if (rua && data.logradouro) rua.value = data.logradouro;
-            const num = host.querySelector('#f-numero');
-            if (num && data.numero) num.value = data.numero;
-            const bairro = host.querySelector('#f-bairro');
-            if (bairro && data.bairro) bairro.value = data.bairro;
-            const cidade = host.querySelector('#f-cidade');
-            if (cidade && data.municipio) cidade.value = data.municipio;
-            const uf = host.querySelector('#f-uf');
-            if (uf && data.uf) uf.value = data.uf;
-            toast('Dados carregados');
-          }
-        }
-      });
-    }
+    setupAutoCNPJ(host.querySelector('#f-cnpj'), (data) => {
+      setField('#f-razao', data.razaoSocial);
+      setField('#f-fantasia', data.nomeFantasia);
+      setField('#f-cep', data.cep ? maskCEP(data.cep) : '');
+      setField('#f-endereco', data.logradouro);
+      setField('#f-numero', data.numero);
+      setField('#f-bairro', data.bairro);
+      setField('#f-cidade', data.municipio);
+      setField('#f-uf', data.uf);
+      setField('#f-telefone', data.telefone ? maskPhone(data.telefone) : '');
+      setField('#f-email', data.email);
+    });
   } else {
     const cpf = host.querySelector('#f-cpf');
     if (cpf) {
@@ -23647,25 +23794,16 @@ function configurarFormCliente(host, isPJ, editing) {
       });
     }
   }
-  // CEP
-  const cep = host.querySelector('#f-cep');
-  if (cep) {
-    applyMask(cep, maskCEP);
-    cep.addEventListener('blur', async () => {
-      const v = onlyDigits(cep.value);
-      if (v.length === 8) {
-        const data = await buscarCEP(v);
-        if (data) {
-          if (host.querySelector('#f-endereco')) host.querySelector('#f-endereco').value = data.logradouro || '';
-          if (host.querySelector('#f-bairro')) host.querySelector('#f-bairro').value = data.bairro || '';
-          if (host.querySelector('#f-cidade')) host.querySelector('#f-cidade').value = data.localidade || '';
-          if (host.querySelector('#f-uf')) host.querySelector('#f-uf').value = data.uf || '';
-          toast('Endereço carregado');
-        }
-      }
-    });
-  }
-  // Telefones
+
+  setupAutoCEP(host.querySelector('#f-cep'), (data) => {
+    setField('#f-endereco', data.rua);
+    setField('#f-bairro', data.bairro);
+    setField('#f-cidade', data.cidade);
+    setField('#f-uf', data.uf);
+    const numInp = host.querySelector('#f-numero');
+    if (numInp) numInp.focus();
+  });
+
   host.querySelectorAll('input[id^="f-celular"], input[id^="f-telefone"]').forEach(inp => {
     applyMask(inp, maskPhone);
   });
@@ -23674,8 +23812,8 @@ function configurarFormCliente(host, isPJ, editing) {
 function salvarClientePagina(host, isPJ, editing) {
   const get = (sel) => { const e = host.querySelector(sel); return e ? e.value.trim() : ''; };
 
-  const nome = get('#f-nome');
-  if (!nome) { toast('Informe o nome', 'danger'); return; }
+  const nome = isPJ ? get('#f-razao') : get('#f-nome');
+  if (!nome) { toast(isPJ ? 'Informe a razão social' : 'Informe o nome', 'danger'); return; }
 
   const doc = isPJ ? get('#f-cnpj') : get('#f-cpf');
   // Verifica duplicata
@@ -23777,23 +23915,13 @@ function renderFormParceirosPagina(id) {
     </div>
   `;
 
-  // Máscaras
-  const cep = host.querySelector('#pa-cep');
-  if (cep) {
-    applyMask(cep, maskCEP);
-    cep.addEventListener('blur', async () => {
-      const v = onlyDigits(cep.value);
-      if (v.length === 8) {
-        const d = await buscarCEP(v);
-        if (d) {
-          host.querySelector('#pa-rua').value = d.logradouro || '';
-          host.querySelector('#pa-bairro').value = d.bairro || '';
-          host.querySelector('#pa-cidade').value = d.localidade || '';
-          host.querySelector('#pa-uf').value = d.uf || '';
-        }
-      }
-    });
-  }
+  setupAutoCEP(host.querySelector('#pa-cep'), (d) => {
+    const set = (sel, val) => { const el = host.querySelector(sel); if (el && val) el.value = val; };
+    set('#pa-rua', d.rua);
+    set('#pa-bairro', d.bairro);
+    set('#pa-cidade', d.cidade);
+    set('#pa-uf', d.uf);
+  });
   applyMask(host.querySelector('#pa-tel'), maskPhone);
 
   $('#cad-pg-save').onclick = () => {
@@ -28736,22 +28864,46 @@ document.getElementById('toggle-pass').addEventListener('click', () => {
   }
 });
 
-document.getElementById('login-form').addEventListener('submit', (e) => {
+document.getElementById('login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const errBox = $('#login-error');
-  const result = authService.login($('#login-email').value, $('#login-pass').value);
-  if (!result.ok) {
-    errBox.textContent = result.error;
-    errBox.style.display = 'block';
-    $('#login-pass').value = '';
-    $('#login-pass').focus();
-    return;
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.dataset._txt = submitBtn.textContent; submitBtn.textContent = 'Entrando...'; }
+  try {
+    const result = await authService.login($('#login-email').value, $('#login-pass').value);
+    if (!result.ok) {
+      errBox.textContent = result.error;
+      errBox.style.display = 'block';
+      $('#login-pass').value = '';
+      $('#login-pass').focus();
+      return;
+    }
+    try {
+      await repo.bootstrap();
+    } catch (err) {
+      console.error('Falha ao carregar dados iniciais:', err);
+      errBox.textContent = 'Login OK, mas falha ao carregar dados: ' + (err.message || err);
+      errBox.style.display = 'block';
+      return;
+    }
+    const perfilApp = DB.usuarios.find(u => u.id === result.user?.id);
+    window.CURRENT_USER = perfilApp
+      ? { id: perfilApp.id, nome: perfilApp.nome, email: perfilApp.email, admin: perfilApp.admin, perfilId: perfilApp.perfilId }
+      : { id: result.user?.id, nome: result.user?.email, email: result.user?.email, admin: false, perfilId: null };
+    errBox.style.display = 'none';
+    $('#login-screen').style.display = 'none';
+    $('#app').classList.add('active');
+    window.renderNav();
+    navigate('dashboard');
+    repo.logs.push({
+      usuarioId: result.user?.id,
+      acao: 'Login realizado',
+      modulo: 'auth',
+      detalhe: result.user?.email || '',
+    }).catch(err => console.warn('Falha ao registrar log de login:', err));
+  } finally {
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = submitBtn.dataset._txt || 'Entrar'; }
   }
-  errBox.style.display = 'none';
-  $('#login-screen').style.display = 'none';
-  $('#app').classList.add('active');
-  window.renderNav();
-  navigate('dashboard');
 });
 // =====================================================
 // PATCH: Registrar todas as rotas do módulo financeiro no RENDERERS global
@@ -28763,6 +28915,525 @@ if (typeof RENDERERS !== 'undefined') {
   RENDERERS['contas-receber'] = renderContasReceber;
   RENDERERS['fluxo-caixa']    = renderFluxoCaixa;
   RENDERERS['dre']            = renderDRE;
+}
+
+// =====================================================
+// MÓDULO: SUPRIMENTOS
+// Submenus: Ordens de compra, Follow up, Patrimônio, Impostos
+// Padrão jsonb write-through — saveDB() já sincroniza com Supabase.
+// =====================================================
+
+// ============ ORDENS DE COMPRA (reusa DB.pedidosCompra) ============
+function renderSuprimentosOrdensCompra(parent) {
+  DB.pedidosCompra = DB.pedidosCompra || [];
+  const total = DB.pedidosCompra.length;
+  const pendentes = DB.pedidosCompra.filter(p => (p.status||'Aberta') !== 'Recebida').length;
+  const valorTotal = DB.pedidosCompra.reduce((s,p) => s + Number(p.total||0), 0);
+
+  pageHead(parent, 'Ordens de <em>compra</em>', `${total} ordem(ns) · ${pendentes} em andamento`,
+    `<button class="btn btn-primary btn-sm" onclick="abrirOrdemCompraModal()">${ICONS.plus} Nova ordem</button>`);
+
+  parent.appendChild(el(`
+    <div class="kpi-row" style="margin-bottom:14px">
+      <div class="kpi"><div class="kpi-lbl">Total</div><div class="kpi-val">${total}</div></div>
+      <div class="kpi"><div class="kpi-lbl">Em andamento</div><div class="kpi-val">${pendentes}</div></div>
+      <div class="kpi"><div class="kpi-lbl">Valor acumulado</div><div class="kpi-val">${brl(valorTotal)}</div></div>
+    </div>
+  `));
+
+  if (total === 0) {
+    parent.appendChild(el('<div class="card"></div>')).appendChild(
+      emptyState('clipboard', 'Sem ordens de compra', 'Cadastre ordens de compra para acompanhar suprimentos junto a fornecedores.', 'Nova ordem', () => abrirOrdemCompraModal())
+    );
+    return;
+  }
+
+  parent.appendChild(el(`
+    <div class="card"><div class="card-body flush"><div class="table-wrap"><table class="tbl">
+      <thead><tr><th>Nº</th><th>Fornecedor</th><th>Itens</th><th>Total</th><th>Prazo</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        ${[...DB.pedidosCompra].reverse().map(p => {
+          const itens = Array.isArray(p.itens) ? p.itens.length : 0;
+          const st = p.status || 'Aberta';
+          const stColor = st === 'Recebida' ? 'success' : st === 'Cancelada' ? 'danger' : st === 'Aprovada' ? 'info' : 'warning';
+          return `<tr style="cursor:pointer" onclick="abrirOrdemCompraModal('${p.id}')">
+            <td><strong>${escapeHtml(p.id)}</strong></td>
+            <td>${escapeHtml(p.fornecedor||'—')}</td>
+            <td class="num">${itens}</td>
+            <td class="num">${brl(p.total||0)}</td>
+            <td style="font-size:11.5px">${p.prazoEntrega ? new Date(p.prazoEntrega).toLocaleDateString('pt-BR') : '—'}</td>
+            <td><span class="pill ${stColor}" style="font-size:9.5px">${escapeHtml(st)}</span></td>
+            <td onclick="event.stopPropagation()">
+              <div class="row-actions">
+                <button class="row-action-btn" onclick="abrirFollowupModal(null, '${p.id}')" title="Registrar follow up">${ICONS.clock||ICONS.edit}</button>
+                <button class="row-action-btn" onclick="abrirOrdemCompraModal('${p.id}')">${ICONS.edit}</button>
+                <button class="row-action-btn danger" onclick="deletarOrdemCompra('${p.id}')">${ICONS.trash}</button>
+              </div>
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table></div></div></div>
+  `));
+}
+
+function abrirOrdemCompraModal(id) {
+  const editing = id ? DB.pedidosCompra.find(p => p.id === id) : null;
+  const fornecedores = (DB.fornecedores||[]).map(f => f.razaoSocial || f.nome || '').filter(Boolean);
+  const m = openModal({
+    title: editing ? `Ordem ${editing.id}` : 'Nova ordem de compra',
+    size: 'md',
+    body: `
+      <div class="field-row">
+        <div class="field"><label>Fornecedor *</label>
+          <input type="text" id="oc-fornecedor" list="oc-forn-list" value="${escapeHtml(editing?.fornecedor||'')}" placeholder="Selecione ou digite">
+          <datalist id="oc-forn-list">${fornecedores.map(f => `<option value="${escapeHtml(f)}">`).join('')}</datalist>
+        </div>
+        <div class="field"><label>Prazo de entrega</label><input type="date" id="oc-prazo" value="${escapeHtml(editing?.prazoEntrega||'')}"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Valor total *</label><input type="number" step="0.01" id="oc-total" value="${editing?.total||''}" placeholder="0,00"></div>
+        <div class="field"><label>Status</label>
+          <select id="oc-status">
+            ${['Aberta','Aprovada','Enviada','Recebida','Cancelada'].map(s => `<option ${editing?.status===s?'selected':''}>${s}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="field"><label>Descrição / itens (resumo)</label>
+        <textarea id="oc-desc" rows="3" placeholder="Ex: 200m perfil LED 18W, 50 fontes 24V">${escapeHtml(editing?.descricao||'')}</textarea>
+      </div>
+      <div class="field"><label>Observações</label>
+        <textarea id="oc-obs" rows="2">${escapeHtml(editing?.obs||'')}</textarea>
+      </div>
+    `,
+    footer: `<button class="btn btn-secondary" id="oc-cancel">Cancelar</button>
+             <button class="btn btn-primary" id="oc-save">${ICONS.check} ${editing?'Salvar':'Criar ordem'}</button>`
+  });
+
+  m.root.querySelector('#oc-cancel').onclick = () => m.close();
+  m.root.querySelector('#oc-save').onclick = () => {
+    const fornecedor = m.root.querySelector('#oc-fornecedor').value.trim();
+    if (!fornecedor) { toast('Informe o fornecedor', 'danger'); return; }
+    const total = Number(m.root.querySelector('#oc-total').value) || 0;
+
+    const data = {
+      id: editing?.id || nextId('pc','OC'),
+      fornecedor,
+      prazoEntrega: m.root.querySelector('#oc-prazo').value,
+      total,
+      status: m.root.querySelector('#oc-status').value,
+      descricao: m.root.querySelector('#oc-desc').value.trim(),
+      obs: m.root.querySelector('#oc-obs').value.trim(),
+      itens: editing?.itens || [],
+      criadoEm: editing?.criadoEm || new Date().toISOString(),
+      criadoPor: editing?.criadoPor || (window.CURRENT_USER?.nome || ''),
+    };
+
+    if (editing) DB.pedidosCompra[DB.pedidosCompra.findIndex(p => p.id === editing.id)] = data;
+    else DB.pedidosCompra.push(data);
+    saveDB();
+    toast(editing ? 'Ordem atualizada' : 'Ordem criada');
+    m.close();
+    renderPage(currentPage);
+  };
+}
+
+function deletarOrdemCompra(id) {
+  confirmAction({
+    title: 'Excluir ordem de compra?',
+    onConfirm: () => {
+      DB.pedidosCompra = DB.pedidosCompra.filter(p => p.id !== id);
+      DB.followUp = (DB.followUp||[]).filter(f => f.ordemCompraId !== id);
+      saveDB();
+      toast('Ordem excluída', 'danger');
+      renderPage(currentPage);
+    }
+  });
+}
+
+// ============ FOLLOW UP ============
+function renderSuprimentosFollowup(parent) {
+  DB.followUp = DB.followUp || [];
+  const total = DB.followUp.length;
+  pageHead(parent, 'Follow <em>up</em>', `${total} registro(s) de acompanhamento`,
+    `<button class="btn btn-primary btn-sm" onclick="abrirFollowupModal()">${ICONS.plus} Novo follow up</button>`);
+
+  if (total === 0) {
+    parent.appendChild(el('<div class="card"></div>')).appendChild(
+      emptyState('clock', 'Sem follow ups', 'Registre acompanhamentos de ordens de compra: contatos, prazos, atualizações.', 'Novo follow up', () => abrirFollowupModal())
+    );
+    return;
+  }
+
+  parent.appendChild(el(`
+    <div class="card"><div class="card-body flush"><div class="table-wrap"><table class="tbl">
+      <thead><tr><th>Data</th><th>Ordem</th><th>Fornecedor</th><th>Status</th><th>Prev.</th><th>Observação</th><th>Contato</th><th></th></tr></thead>
+      <tbody>
+        ${[...DB.followUp].sort((a,b) => new Date(b.contatoEm||b.criadoEm) - new Date(a.contatoEm||a.criadoEm)).map(f => {
+          const oc = DB.pedidosCompra.find(p => p.id === f.ordemCompraId);
+          const st = f.statusAtual || '—';
+          const stColor = st === 'OK' ? 'success' : st.toLowerCase().includes('atras') ? 'danger' : 'warning';
+          return `<tr style="cursor:pointer" onclick="abrirFollowupModal('${f.id}')">
+            <td class="num" style="font-size:11.5px">${f.contatoEm ? new Date(f.contatoEm).toLocaleDateString('pt-BR') : '—'}</td>
+            <td><strong>${escapeHtml(f.ordemCompraId||'—')}</strong></td>
+            <td style="font-size:11.5px">${escapeHtml(f.fornecedor || oc?.fornecedor || '—')}</td>
+            <td><span class="pill ${stColor}" style="font-size:9.5px">${escapeHtml(st)}</span></td>
+            <td style="font-size:11px">${f.dataPrevista ? new Date(f.dataPrevista).toLocaleDateString('pt-BR') : '—'}</td>
+            <td style="font-size:11.5px;max-width:280px">${escapeHtml((f.observacao||'').substring(0,80))}${(f.observacao||'').length>80?'…':''}</td>
+            <td style="font-size:11px;color:var(--muted)">${escapeHtml(f.contatoPor||'—')}</td>
+            <td onclick="event.stopPropagation()">
+              <div class="row-actions">
+                <button class="row-action-btn danger" onclick="deletarFollowup('${f.id}')">${ICONS.trash}</button>
+              </div>
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table></div></div></div>
+  `));
+}
+
+function abrirFollowupModal(id, ordemId) {
+  const editing = id ? (DB.followUp||[]).find(f => f.id === id) : null;
+  const ordens = DB.pedidosCompra || [];
+  const ocPre = ordemId || editing?.ordemCompraId || '';
+  const m = openModal({
+    title: editing ? 'Editar follow up' : 'Novo follow up',
+    size: 'md',
+    body: `
+      <div class="field-row">
+        <div class="field"><label>Ordem de compra *</label>
+          <select id="fu-oc">
+            <option value="">Selecione...</option>
+            ${ordens.map(o => `<option value="${o.id}" ${ocPre===o.id?'selected':''}>${escapeHtml(o.id)} — ${escapeHtml(o.fornecedor||'')}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field"><label>Status atual</label>
+          <select id="fu-status">
+            ${['Aguardando','Em produção','Em transporte','Atrasado','OK','Resolvido'].map(s => `<option ${editing?.statusAtual===s?'selected':''}>${s}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Data do contato</label><input type="date" id="fu-contato" value="${editing?.contatoEm ? editing.contatoEm.split('T')[0] : new Date().toISOString().split('T')[0]}"></div>
+        <div class="field"><label>Previsão de entrega</label><input type="date" id="fu-prev" value="${escapeHtml(editing?.dataPrevista||'')}"></div>
+      </div>
+      <div class="field"><label>Observação *</label>
+        <textarea id="fu-obs" rows="3" placeholder="O que foi conversado, próximos passos...">${escapeHtml(editing?.observacao||'')}</textarea>
+      </div>
+    `,
+    footer: `<button class="btn btn-secondary" id="fu-cancel">Cancelar</button>
+             <button class="btn btn-primary" id="fu-save">${ICONS.check} ${editing?'Salvar':'Registrar'}</button>`
+  });
+
+  m.root.querySelector('#fu-cancel').onclick = () => m.close();
+  m.root.querySelector('#fu-save').onclick = () => {
+    const ocId = m.root.querySelector('#fu-oc').value;
+    if (!ocId) { toast('Selecione a ordem de compra', 'danger'); return; }
+    const obs = m.root.querySelector('#fu-obs').value.trim();
+    if (!obs) { toast('Descreva o acompanhamento', 'danger'); return; }
+
+    const oc = DB.pedidosCompra.find(p => p.id === ocId);
+    const data = {
+      id: editing?.id || nextId('fup','FUP'),
+      ordemCompraId: ocId,
+      ordemCompraNumero: ocId,
+      fornecedor: oc?.fornecedor || '',
+      statusAtual: m.root.querySelector('#fu-status').value,
+      contatoEm: m.root.querySelector('#fu-contato').value,
+      dataPrevista: m.root.querySelector('#fu-prev').value,
+      observacao: obs,
+      contatoPor: window.CURRENT_USER?.nome || '',
+      criadoEm: editing?.criadoEm || new Date().toISOString(),
+    };
+
+    DB.followUp = DB.followUp || [];
+    if (editing) DB.followUp[DB.followUp.findIndex(f => f.id === editing.id)] = data;
+    else DB.followUp.push(data);
+
+    // Sincroniza status da ordem se status final
+    if (oc && (data.statusAtual === 'OK' || data.statusAtual === 'Resolvido')) {
+      oc.status = oc.status || 'Recebida';
+    }
+
+    saveDB();
+    toast(editing ? 'Follow up atualizado' : 'Follow up registrado');
+    m.close();
+    renderPage(currentPage);
+  };
+}
+
+function deletarFollowup(id) {
+  confirmAction({
+    title: 'Excluir follow up?',
+    onConfirm: () => {
+      DB.followUp = (DB.followUp||[]).filter(f => f.id !== id);
+      saveDB();
+      toast('Follow up excluído', 'danger');
+      renderPage(currentPage);
+    }
+  });
+}
+
+// ============ PATRIMÔNIO ============
+function renderSuprimentosPatrimonio(parent) {
+  DB.patrimonios = DB.patrimonios || [];
+  const ativos = DB.patrimonios.filter(p => (p.status||'Ativo') === 'Ativo').length;
+  const valorTotal = DB.patrimonios.reduce((s,p) => s + Number(p.valorAquisicao||0), 0);
+
+  pageHead(parent, 'Patrimônio', `${DB.patrimonios.length} bem(ns) · ${ativos} ativos · ${brl(valorTotal)}`,
+    `<button class="btn btn-primary btn-sm" onclick="abrirPatrimonioModal()">${ICONS.plus} Novo bem</button>`);
+
+  if (DB.patrimonios.length === 0) {
+    parent.appendChild(el('<div class="card"></div>')).appendChild(
+      emptyState('box', 'Sem patrimônio cadastrado', 'Cadastre bens da empresa: móveis, equipamentos, ferramentas, veículos.', 'Novo bem', () => abrirPatrimonioModal())
+    );
+    return;
+  }
+
+  parent.appendChild(el(`
+    <div class="card"><div class="card-body flush"><div class="table-wrap"><table class="tbl">
+      <thead><tr><th>Código</th><th>Bem</th><th>Tipo</th><th>Aquisição</th><th>Valor</th><th>Local / Resp.</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        ${DB.patrimonios.map(p => {
+          const st = p.status || 'Ativo';
+          const stColor = st === 'Ativo' ? 'success' : st === 'Baixado' ? 'danger' : 'warning';
+          return `<tr style="cursor:pointer" onclick="abrirPatrimonioModal('${p.id}')">
+            <td class="num" style="font-size:11px"><strong>${escapeHtml(p.codigo||p.id)}</strong></td>
+            <td><strong>${escapeHtml(p.nome)}</strong>${p.nf?`<br><span style="color:var(--muted);font-size:10.5px">NF ${escapeHtml(p.nf)}</span>`:''}</td>
+            <td style="font-size:11.5px">${escapeHtml(p.tipo||'—')}</td>
+            <td class="num" style="font-size:11px">${p.dataAquisicao ? new Date(p.dataAquisicao).toLocaleDateString('pt-BR') : '—'}</td>
+            <td class="num">${brl(p.valorAquisicao||0)}</td>
+            <td style="font-size:11.5px">${escapeHtml(p.localizacao||'—')}${p.responsavel?`<br><span style="color:var(--muted);font-size:10.5px">${escapeHtml(p.responsavel)}</span>`:''}</td>
+            <td><span class="pill ${stColor}" style="font-size:9.5px">${escapeHtml(st)}</span></td>
+            <td onclick="event.stopPropagation()">
+              <div class="row-actions">
+                <button class="row-action-btn" onclick="abrirPatrimonioModal('${p.id}')">${ICONS.edit}</button>
+                <button class="row-action-btn danger" onclick="deletarPatrimonio('${p.id}')">${ICONS.trash}</button>
+              </div>
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table></div></div></div>
+  `));
+}
+
+function abrirPatrimonioModal(id) {
+  const editing = id ? DB.patrimonios.find(p => p.id === id) : null;
+  const fornecedores = (DB.fornecedores||[]).map(f => f.razaoSocial || f.nome || '').filter(Boolean);
+  const m = openModal({
+    title: editing ? `Bem ${editing.codigo||editing.id}` : 'Novo bem patrimonial',
+    size: 'md',
+    body: `
+      <div class="field-row">
+        <div class="field"><label>Código interno</label><input type="text" id="pt-cod" value="${escapeHtml(editing?.codigo||'')}" placeholder="Ex: PAT-001"></div>
+        <div class="field"><label>Tipo</label>
+          <select id="pt-tipo">
+            ${['Equipamento','Móvel','Ferramenta','Veículo','Eletrônico','Imóvel','Outro'].map(t => `<option ${editing?.tipo===t?'selected':''}>${t}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="field"><label>Nome / descrição *</label>
+        <input type="text" id="pt-nome" value="${escapeHtml(editing?.nome||'')}" placeholder="Ex: Notebook Dell Vostro 14">
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Data de aquisição</label><input type="date" id="pt-data" value="${escapeHtml(editing?.dataAquisicao||'')}"></div>
+        <div class="field"><label>Valor de aquisição</label><input type="number" step="0.01" id="pt-valor" value="${editing?.valorAquisicao||''}" placeholder="0,00"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Fornecedor</label>
+          <input type="text" id="pt-forn" list="pt-forn-list" value="${escapeHtml(editing?.fornecedor||'')}">
+          <datalist id="pt-forn-list">${fornecedores.map(f => `<option value="${escapeHtml(f)}">`).join('')}</datalist>
+        </div>
+        <div class="field"><label>Nota Fiscal</label><input type="text" id="pt-nf" value="${escapeHtml(editing?.nf||'')}" placeholder="Nº NF"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Localização</label><input type="text" id="pt-local" value="${escapeHtml(editing?.localizacao||'')}" placeholder="Ex: Sala administrativa"></div>
+        <div class="field"><label>Responsável</label><input type="text" id="pt-resp" value="${escapeHtml(editing?.responsavel||'')}"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Status</label>
+          <select id="pt-status">
+            ${['Ativo','Em manutenção','Baixado','Em uso externo'].map(s => `<option ${editing?.status===s?'selected':''}>${s}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field"><label>Vida útil (meses)</label><input type="number" id="pt-vida" value="${editing?.vidaUtilMeses||''}" placeholder="60"></div>
+      </div>
+      <div class="field"><label>Observações</label>
+        <textarea id="pt-obs" rows="2">${escapeHtml(editing?.observacoes||'')}</textarea>
+      </div>
+    `,
+    footer: `<button class="btn btn-secondary" id="pt-cancel">Cancelar</button>
+             <button class="btn btn-primary" id="pt-save">${ICONS.check} ${editing?'Salvar':'Cadastrar'}</button>`
+  });
+
+  m.root.querySelector('#pt-cancel').onclick = () => m.close();
+  m.root.querySelector('#pt-save').onclick = () => {
+    const nome = m.root.querySelector('#pt-nome').value.trim();
+    if (!nome) { toast('Informe o nome do bem', 'danger'); return; }
+    const data = {
+      id: editing?.id || nextId('pat','PAT'),
+      codigo: m.root.querySelector('#pt-cod').value.trim() || (editing?.codigo) || '',
+      nome,
+      tipo: m.root.querySelector('#pt-tipo').value,
+      dataAquisicao: m.root.querySelector('#pt-data').value,
+      valorAquisicao: Number(m.root.querySelector('#pt-valor').value) || 0,
+      fornecedor: m.root.querySelector('#pt-forn').value.trim(),
+      nf: m.root.querySelector('#pt-nf').value.trim(),
+      localizacao: m.root.querySelector('#pt-local').value.trim(),
+      responsavel: m.root.querySelector('#pt-resp').value.trim(),
+      status: m.root.querySelector('#pt-status').value,
+      vidaUtilMeses: Number(m.root.querySelector('#pt-vida').value) || 0,
+      observacoes: m.root.querySelector('#pt-obs').value.trim(),
+      criadoEm: editing?.criadoEm || new Date().toISOString(),
+    };
+    if (editing) DB.patrimonios[DB.patrimonios.findIndex(p => p.id === editing.id)] = data;
+    else DB.patrimonios.push(data);
+    saveDB();
+    toast(editing ? 'Bem atualizado' : 'Bem cadastrado');
+    m.close();
+    renderPage(currentPage);
+  };
+}
+
+function deletarPatrimonio(id) {
+  confirmAction({
+    title: 'Excluir bem do patrimônio?',
+    onConfirm: () => {
+      DB.patrimonios = DB.patrimonios.filter(p => p.id !== id);
+      saveDB();
+      toast('Bem excluído', 'danger');
+      renderPage(currentPage);
+    }
+  });
+}
+
+// ============ IMPOSTOS ============
+function renderSuprimentosImpostos(parent) {
+  DB.impostos = DB.impostos || [];
+  const ativos = DB.impostos.filter(i => i.ativo !== false).length;
+
+  pageHead(parent, 'Impostos', `${DB.impostos.length} configuração(ões) · ${ativos} ativa(s)`,
+    `<button class="btn btn-primary btn-sm" onclick="abrirImpostoModal()">${ICONS.plus} Novo imposto</button>`);
+
+  if (DB.impostos.length === 0) {
+    parent.appendChild(el('<div class="card"></div>')).appendChild(
+      emptyState('receipt', 'Sem impostos configurados', 'Cadastre alíquotas (ICMS, IPI, PIS, COFINS, ISS...) para usar nas notas e custos.', 'Novo imposto', () => abrirImpostoModal())
+    );
+    return;
+  }
+
+  // Agrupado por tipo
+  const tipos = [...new Set(DB.impostos.map(i => i.tipo || 'Outro'))];
+
+  tipos.forEach(tipo => {
+    const lista = DB.impostos.filter(i => (i.tipo||'Outro') === tipo);
+    parent.appendChild(el(`
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px">${escapeHtml(tipo)}</div>
+      <div class="card" style="margin-bottom:14px"><div class="card-body flush"><div class="table-wrap"><table class="tbl">
+        <thead><tr><th>Nome</th><th>Alíquota</th><th>NCM</th><th>CFOP</th><th>Descrição</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          ${lista.map(i => `
+            <tr style="cursor:pointer" onclick="abrirImpostoModal('${i.id}')">
+              <td><strong>${escapeHtml(i.nome)}</strong></td>
+              <td class="num"><strong>${(Number(i.aliquota)||0).toFixed(2)}%</strong></td>
+              <td class="num" style="font-size:11px">${escapeHtml(i.ncm||'—')}</td>
+              <td class="num" style="font-size:11px">${escapeHtml(i.cfop||'—')}</td>
+              <td style="font-size:11.5px;color:var(--muted)">${escapeHtml((i.descricao||'').substring(0,60))}${(i.descricao||'').length>60?'…':''}</td>
+              <td><span class="pill ${i.ativo===false?'danger':'success'}" style="font-size:9.5px">${i.ativo===false?'Inativo':'Ativo'}</span></td>
+              <td onclick="event.stopPropagation()">
+                <div class="row-actions">
+                  <button class="row-action-btn" onclick="abrirImpostoModal('${i.id}')">${ICONS.edit}</button>
+                  <button class="row-action-btn danger" onclick="deletarImposto('${i.id}')">${ICONS.trash}</button>
+                </div>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table></div></div></div>
+    `));
+  });
+}
+
+function abrirImpostoModal(id) {
+  const editing = id ? DB.impostos.find(i => i.id === id) : null;
+  const m = openModal({
+    title: editing ? `Editar imposto · ${editing.nome}` : 'Novo imposto',
+    size: 'md',
+    body: `
+      <div class="field-row">
+        <div class="field"><label>Nome *</label><input type="text" id="im-nome" value="${escapeHtml(editing?.nome||'')}" placeholder="Ex: ICMS 18% interno"></div>
+        <div class="field"><label>Tipo *</label>
+          <select id="im-tipo">
+            ${['ICMS','IPI','PIS','COFINS','ISS','ICMS-ST','DIFAL','Outro'].map(t => `<option ${editing?.tipo===t?'selected':''}>${t}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Alíquota (%) *</label><input type="number" step="0.01" id="im-aliq" value="${editing?.aliquota ?? ''}" placeholder="0,00"></div>
+        <div class="field"><label>Status</label>
+          <select id="im-ativo">
+            <option value="1" ${editing?.ativo!==false?'selected':''}>Ativo</option>
+            <option value="0" ${editing?.ativo===false?'selected':''}>Inativo</option>
+          </select>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>NCM</label><input type="text" id="im-ncm" value="${escapeHtml(editing?.ncm||'')}" placeholder="0000.00.00"></div>
+        <div class="field"><label>CFOP</label><input type="text" id="im-cfop" value="${escapeHtml(editing?.cfop||'')}" placeholder="Ex: 5102"></div>
+      </div>
+      <div class="field"><label>Descrição</label>
+        <textarea id="im-desc" rows="2">${escapeHtml(editing?.descricao||'')}</textarea>
+      </div>
+    `,
+    footer: `<button class="btn btn-secondary" id="im-cancel">Cancelar</button>
+             <button class="btn btn-primary" id="im-save">${ICONS.check} ${editing?'Salvar':'Cadastrar'}</button>`
+  });
+
+  m.root.querySelector('#im-cancel').onclick = () => m.close();
+  m.root.querySelector('#im-save').onclick = () => {
+    const nome = m.root.querySelector('#im-nome').value.trim();
+    if (!nome) { toast('Informe o nome', 'danger'); return; }
+    const aliq = m.root.querySelector('#im-aliq').value;
+    if (aliq === '' || aliq === null) { toast('Informe a alíquota', 'danger'); return; }
+    const data = {
+      id: editing?.id || nextId('imp','IMP'),
+      nome,
+      tipo: m.root.querySelector('#im-tipo').value,
+      aliquota: Number(aliq) || 0,
+      ncm: m.root.querySelector('#im-ncm').value.trim(),
+      cfop: m.root.querySelector('#im-cfop').value.trim(),
+      descricao: m.root.querySelector('#im-desc').value.trim(),
+      ativo: m.root.querySelector('#im-ativo').value === '1',
+    };
+    if (editing) DB.impostos[DB.impostos.findIndex(i => i.id === editing.id)] = data;
+    else DB.impostos.push(data);
+    saveDB();
+    toast(editing ? 'Imposto atualizado' : 'Imposto cadastrado');
+    m.close();
+    renderPage(currentPage);
+  };
+}
+
+function deletarImposto(id) {
+  confirmAction({
+    title: 'Excluir imposto?',
+    onConfirm: () => {
+      DB.impostos = DB.impostos.filter(i => i.id !== id);
+      saveDB();
+      toast('Imposto excluído', 'danger');
+      renderPage(currentPage);
+    }
+  });
+}
+
+// ============ Registrar renderers ============
+if (typeof RENDERERS !== 'undefined') {
+  RENDERERS['sup-ordens-compra'] = renderSuprimentosOrdensCompra;
+  RENDERERS['sup-followup']      = renderSuprimentosFollowup;
+  RENDERERS['sup-patrimonio']    = renderSuprimentosPatrimonio;
+  RENDERERS['sup-impostos']      = renderSuprimentosImpostos;
 }
 </script>
 </body>
