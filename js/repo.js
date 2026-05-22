@@ -176,6 +176,14 @@ const repo = (() => {
     // Fase 9 — Suprimentos
     'patrimonios', 'impostos',
     { table: 'follow_up', key: 'followUp' },
+    // Fase 10 — Ambientes padrão (para orçamentos do tipo Projeto)
+    { table: 'ambientes_padrao', key: 'ambientesPadrao' },
+    // Fase 11 — Logística e pós-venda complementares
+    { table: 'motivos_troca',         key: 'motivosTroca' },
+    { table: 'pendencias_separacao',  key: 'pendenciasSeparacao' },
+    { table: 'auditoria_exclusoes',   key: 'auditoriaExclusoes' },
+    'motoristas',
+    'rotas',
   ];
 
   function _entityTable(e) { return typeof e === 'string' ? e : e.table; }
@@ -183,7 +191,7 @@ const repo = (() => {
 
   // Singletons: configurações que não são arrays. Armazenadas em app_settings (chave/valor).
   // DB[key] é um objeto, não array.
-  const SINGLETON_KEYS = ['configOS', 'counters'];
+  const SINGLETON_KEYS = ['configOS', 'counters', 'empresa'];
   const _lastSyncedSingletonHash = {};
 
   // Snapshot dos IDs presentes no servidor (por entidade). Usado pra detectar deletes locais.

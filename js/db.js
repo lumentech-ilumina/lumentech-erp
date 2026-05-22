@@ -36,16 +36,107 @@ function loadDB() {
     if (!Array.isArray(merged.creditosCliente)) merged.creditosCliente = [];
     if (!Array.isArray(merged.prestacoesContas)) merged.prestacoesContas = [];
     if (!Array.isArray(merged.movimentacoes)) merged.movimentacoes = [];
+    if (!Array.isArray(merged.pendenciasSeparacao)) merged.pendenciasSeparacao = [];
+    if (!Array.isArray(merged.motivosTroca) || merged.motivosTroca.length === 0) merged.motivosTroca = defaultMotivosTroca();
     // Suprimentos
     if (!Array.isArray(merged.patrimonios)) merged.patrimonios = [];
     if (!Array.isArray(merged.impostos)) merged.impostos = [];
     if (!Array.isArray(merged.followUp)) merged.followUp = [];
+    if (!Array.isArray(merged.ambientesPadrao)) merged.ambientesPadrao = [];
+    // Logística e auditoria
+    if (!Array.isArray(merged.motoristas)) merged.motoristas = [];
+    if (!Array.isArray(merged.rotas)) merged.rotas = [];
+    if (!Array.isArray(merged.auditoriaExclusoes)) merged.auditoriaExclusoes = [];
     // Counters compatibility
     merged.counters = { ...def.counters, ...(saved.counters || {}) };
     return merged;
   } catch(e) { return defaultDB(); }
 }
-function saveDB() { localStorage.setItem(STORAGE_KEY, JSON.stringify(DB)); }
+function saveDB() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(DB));
+    return true;
+  } catch (e) {
+    // Quota exceeded — provavelmente imagens/anexos em base64 estouraram o limite (~5MB)
+    if (e && (e.name === 'QuotaExceededError' || e.code === 22 || /quota/i.test(e.message))) {
+      console.error('Armazenamento cheio. Use Configurações → Análise de armazenamento.');
+      // Toast amigável com instrução clara
+      if (typeof toast === 'function') {
+        toast('Armazenamento cheio. Vá em Configurações → Análise de armazenamento pra liberar espaço.', 'danger');
+      }
+      // Marca flag pra mostrar banner em qualquer renderização
+      try { window._dbQuotaExceeded = true; } catch(_){}
+      return false;
+    }
+    console.error('Erro inesperado ao salvar:', e);
+    if (typeof toast === 'function') toast('Erro inesperado ao salvar — F12 → Console pra detalhes', 'danger');
+    return false;
+  }
+}
+
+// Análise: retorna o tamanho em bytes de cada chave do DB
+function analisarTamanhoDB() {
+  const out = [];
+  for (const k of Object.keys(DB)) {
+    try {
+      const bytes = new Blob([JSON.stringify(DB[k] || null)]).size;
+      out.push({ chave: k, bytes, kb: +(bytes/1024).toFixed(1) });
+    } catch(_) {}
+  }
+  out.sort((a,b) => b.bytes - a.bytes);
+  return out;
+}
+
+// Remove imagens/anexos pesados (base64 dataURLs) — última instância pra liberar quota
+function limparAnexosPesados() {
+  let liberados = 0;
+  // Logo da empresa
+  if (DB.empresa && DB.empresa.logo && DB.empresa.logo.length > 100) {
+    liberados += DB.empresa.logo.length;
+    DB.empresa.logo = '';
+  }
+  // Imagens dos produtos
+  (DB.produtos || []).forEach(p => {
+    if (Array.isArray(p.imagens)) {
+      p.imagens.forEach(img => { if (typeof img === 'string' && img.startsWith('data:')) liberados += img.length; });
+      p.imagens = [];
+    }
+  });
+  // Anexos do CRM (comentários e timeline)
+  (DB.oportunidades || []).forEach(opp => {
+    (opp.comentarios || []).forEach(c => {
+      if (Array.isArray(c.anexos)) {
+        c.anexos.forEach(a => { if (a.dataUrl && a.dataUrl.startsWith('data:')) liberados += a.dataUrl.length; });
+        c.anexos = [];
+      }
+    });
+    if (Array.isArray(opp.anexos)) {
+      opp.anexos.forEach(a => { if (a.dataUrl && a.dataUrl.startsWith('data:')) liberados += a.dataUrl.length; });
+      opp.anexos = [];
+    }
+  });
+  // Anexos internos do orçamento
+  (DB.orcamentos || []).forEach(o => {
+    if (Array.isArray(o.anexosInternos)) {
+      o.anexosInternos.forEach(a => { if (a.dataUrl && a.dataUrl.startsWith('data:')) liberados += a.dataUrl.length; });
+      o.anexosInternos = [];
+    }
+  });
+  // Anexos das OPs e OS
+  (DB.ops || []).forEach(op => {
+    if (Array.isArray(op.anexos)) {
+      op.anexos.forEach(a => { if (a.dataUrl && a.dataUrl.startsWith('data:')) liberados += a.dataUrl.length; });
+      op.anexos = [];
+    }
+  });
+  (DB.osServicos || []).forEach(os => {
+    if (Array.isArray(os.anexos)) {
+      os.anexos.forEach(a => { if (a.dataUrl && a.dataUrl.startsWith('data:')) liberados += a.dataUrl.length; });
+      os.anexos = [];
+    }
+  });
+  return Math.round(liberados / 1024); // KB liberados
+}
 function defaultDB() {
   return {
     clientes: [], fornecedores: [], funcionarios: [], produtos: [], consultores: [],
@@ -58,6 +149,9 @@ function defaultDB() {
     devolucoes: [],        // {id, pedidoId, clienteId, itens:[], motivo, valorPago, status, requerAprovFinanc, criadoEm, criadoPor, aprovadoEm, aprovadoPor, recebidoEm, recebidoPor, creditoGeradoId, historico:[]}
     creditosCliente: [],   // {id, clienteId, valor, valorUsado, origemTipo:'devolucao'|'troca', origemId, criadoEm, validadeEm, status:'ativo'|'usado'|'expirado'}
     prestacoesContas: [],  // {id, tipo:'troca'|'devolucao', referenciaId, status:'aguardando'|'validado', recebidoPor, localizacao:{deposito,corredor,prateleira,posicao,setor}, validadoEm, observacoes}
+    // Pendências de compra: itens com conferência parcial (separado < pedido) que aguardam material novo
+    pendenciasSeparacao: [], // {id, pedidoId, clienteId, produtoId, sku, qtdSolicitada, qtdSeparada, qtdPendencia, dataPedido, dataPendencia, status:'aberta'|'oc_emitida'|'atendida', ordemCompraId, previsaoChegada, atendidoEm, historico:[{data, usuario, evento, detalhe}]}
+    motivosTroca: defaultMotivosTroca(), // [{id, nome, padrao:boolean}] — lista personalizável de motivos pra troca
     // Estoque avançado
     movimentacoes: [],     // {id, tipo:entrada|saida|transferencia|ajuste, sku, qtd, motivo, doc, data, usuario, origem, destino, lote}
     lotes: [],             // {id, sku, numero, qtd, validade, fornecedor}
@@ -80,11 +174,28 @@ function defaultDB() {
     categoriasForn: defaultCategoriasForn(),        // [{id, nome}]
     // OS - Veículos
     veiculos: [],                                   // [{id, nome, tipo, placa, renavam, modelo, marca, ano, consumoKm, kmAtual, responsavel, ativo, criadoEm}]
+    // Logística - Motoristas e rotas de expedição
+    motoristas: [],                                 // [{id, nome, cpf, cnh, categoriaCnh, telefone, email, foto, status:'ativo'|'inativo'|'em_rota', ultimaLat, ultimaLng, ultimaPosicaoEm, criadoEm}]
+    rotas: [],                                      // [{id, motoristaId, veiculoId, pedidos:[pedidoId], paradas:[{pedidoId, ordem, endereco, lat, lng, entregueEm, obs}], status:'planejada'|'em_rota'|'concluida'|'cancelada', kmEstimado, kmReal, polyline, criadoEm, criadoPor, iniciadoEm, concluidoEm, obs}]
+    geocodeCache: {},                               // {cacheKey: {lat, lng, label, atualizadoEm}}  — cache de geocodificação por endereço pra evitar chamadas repetidas no Nominatim
     // Vendedores (cadastro simples comercial)
     vendedores: [],                                 // [{id, nome, email, telefone, foto, ativo, criadoEm}]
     configOS: {
       precoCombustivel: 5.89,                       // R$/litro padrão
       tiposServico: ['Medição','Instalação','Assistência técnica','Vistoria','Pós-venda','Manutenção preventiva','Projeto técnico'],
+    },
+    // Comunicação visual da empresa (logo, cores, identidade) — aplicado em headers, PDFs, prints
+    empresa: {
+      nome: '',                                     // Nome da empresa
+      slogan: '',                                   // Subtítulo opcional
+      logo: '',                                     // Data URL base64 (PNG/JPG/SVG)
+      corPrimaria: '',                              // Sobrescreve --info se preenchida (ex: #1E4F8F)
+      corAcento: '',                                // Sobrescreve --ink-2 se preenchida
+      cnpj: '',
+      endereco: '',
+      telefone: '',
+      email: '',
+      site: '',
     },
     // Usuários, perfis e segurança
     usuarios: defaultUsuarios(),                    // [{id, nome, email, telefone, cargo, setor, foto, login, senhaHash, perfilId, ativo, ultimoAcesso, criadoEm}]
@@ -94,7 +205,9 @@ function defaultDB() {
     patrimonios: [],                                // [{id, codigo, nome, tipo, valorAquisicao, dataAquisicao, fornecedor, localizacao, responsavel, nf, status, observacoes, criadoEm}]
     impostos: [],                                   // [{id, nome, tipo, aliquota, ncm, cfop, descricao, ativo}]
     followUp: [],                                   // [{id, ordemCompraId, ordemCompraNumero, fornecedor, statusAtual, dataPrevista, observacao, contatoEm, contatoPor, criadoEm}]
-    counters: { cli:1, orc:1, ped:1, op:1, os:1, exp:1, sku:1, cp:1, cr:1, nfs:1, prod:1, mov:1, lote:1, dep:1, end:1, pc:1, inv:1, tr:1, par:1, int:1, opp:1, task:1, auto:1, cat:1, marca:1, fab:1, forn:1, usu:1, perf:1, log:1, veic:1, med:1, vend:1, pat:1, imp:1, fup:1 },
+    // Ambientes padrão (orçamentos do tipo Projeto)
+    ambientesPadrao: [],                            // [{id, nome, ordem}]
+    counters: { cli:1, orc:1, ped:1, op:1, os:1, exp:1, sku:1, cp:1, cr:1, nfs:1, prod:1, mov:1, lote:1, dep:1, end:1, pc:1, inv:1, tr:1, par:1, int:1, opp:1, task:1, auto:1, cat:1, marca:1, fab:1, forn:1, usu:1, perf:1, log:1, veic:1, med:1, vend:1, pat:1, imp:1, fup:1, mot:1, rot:1 },
   };
 }
 
@@ -284,6 +397,19 @@ function defaultPerfisAcesso() {
   ];
 }
 
+// Motivos padrão de troca (editáveis pelo usuário)
+function defaultMotivosTroca() {
+  return [
+    { id: 'mt_defeito',    nome: 'Defeito de fabricação',  padrao: true },
+    { id: 'mt_dano_trans', nome: 'Dano em transporte',     padrao: true },
+    { id: 'mt_dano_inst',  nome: 'Dano na instalação',     padrao: true },
+    { id: 'mt_incorreto',  nome: 'Produto incorreto enviado', padrao: true },
+    { id: 'mt_arrependi',  nome: 'Arrependimento do cliente', padrao: true },
+    { id: 'mt_dimensoes',  nome: 'Dimensões fora do esperado', padrao: true },
+    { id: 'mt_cor',        nome: 'Cor ou acabamento divergente', padrao: true },
+  ];
+}
+
 // Categorias padrão para Lumentech
 function defaultCategoriasProduto() {
   return [
@@ -372,8 +498,59 @@ function defaultFunis() {
 }
 var DB = loadDB();
 window.DB = DB;
+// Numeração simples (sem prefixo) para os módulos principais.
+// Mantém prefixo legado para entidades internas/transversais (logs, movimentações, etc.)
+// onde o prefixo ainda ajuda na rastreabilidade técnica.
+const _SIMPLE_NUM_KEYS = new Set([
+  // Operacionais
+  'cli',   // Clientes
+  'orc',   // Orçamentos
+  'ped',   // Pedidos de venda
+  'op',    // Ordens de produção
+  'os',    // Ordens de serviço
+  'prod',  // Produtos
+  'sku',   // SKU de produto
+  'rot',   // Rotas de expedição
+  'sep',   // Separações
+  // Cadastros
+  'veic',  // Veículos
+  'vend',  // Vendedores
+  'mot',   // Motoristas
+  'forn',  // Fornecedores
+  'par',   // Parceiros
+  'parc',  // Parceiros (alias)
+  // CRM
+  'opp',   // Oportunidades CRM
+  'task',  // Tarefas CRM
+  'fup',   // Follow-ups
+  'auto',  // Automações
+  'campo', // Campos customizados
+  // Financeiro
+  'cp',    // Contas a pagar
+  'cr',    // Contas a receber
+  'cred',  // Créditos de cliente
+  'pc',    // Pedidos de compra / OC
+  // Estoque/operação
+  'dep',   // Depósitos
+  'end',   // Endereços de estoque
+  'inv',   // Inventários
+  'tr',    // Transferências
+  'dev',   // Devoluções
+  'troca', // Trocas
+  // Catálogo
+  'marca', // Marcas
+  'fab',   // Fabricantes
+  // Fiscal
+  'nfs',   // Notas fiscais de serviço
+  // Patrimônio
+  'pat',   // Patrimônio
+  'imp',   // Impostos / itens fiscais
+]);
 function nextId(key, prefix, digits = 4) {
   const n = DB.counters[key] || 1;
   DB.counters[key] = n + 1;
+  // Para os módulos principais, retorna só o número (1, 2, 3...)
+  if (_SIMPLE_NUM_KEYS.has(key)) return String(n);
+  // Demais entidades mantêm prefixo (compatibilidade legada)
   return `${prefix}-${String(n).padStart(digits, '0')}`;
 }
