@@ -295,11 +295,11 @@
   .sidebar .nav-grupo-chev { color: rgba(255,255,255,0.4); }
   .sidebar .nav-grupo.aberto .nav-grupo-chev { color: #FFFFFF; }
   .sidebar .nav-grupo-filhos { border-left-color: rgba(255,255,255,0.12); }
-  /* Subitens dentro de grupo (CRM, Orçamentos, Pedidos…) */
+  /* Subitens dentro de grupo (CRM, Orçamentos, Pedidos…) — brandbook §03: texto branco sobre preto */
   .sidebar .nav-subitem,
-  .sidebar .nav-grupo-filhos .nav-item { color: rgba(255,255,255,0.72); }
-  .sidebar .nav-grupo-filhos .nav-item:hover { color: #FFFFFF; background: rgba(255,255,255,0.06); }
-  .sidebar .nav-grupo-filhos .nav-item.active { background: #FFFFFF; color: #000000; }
+  .sidebar .nav-grupo-filhos .nav-item { color: #FFFFFF; font-weight: 400; }
+  .sidebar .nav-grupo-filhos .nav-item:hover { color: #FFFFFF; background: rgba(255,255,255,0.08); }
+  .sidebar .nav-grupo-filhos .nav-item.active { background: #FFFFFF; color: #000000; font-weight: 500; }
   /* User chip no rodapé */
   .sidebar .sb-foot { border-top: 1px solid rgba(255,255,255,0.08); }
   .sidebar .user-chip { color: rgba(255,255,255,0.85); }
@@ -3985,30 +3985,37 @@
     height: 14px;
   }
 
-  /* Tabs de status — Orçamentos (Aberto / Convertidos / Cancelado / Relatórios) */
+  /* App bar de status — Orçamentos (Aberto / Convertidos / Cancelado / Relatórios)
+     Estilo app bar: faixa horizontal full-width, underline no ativo (brandbook §05) */
   .orc-status-tabs {
-    display: inline-flex;
-    gap: 4px;
-    background: var(--surface-2);
-    padding: 4px;
-    border-radius: 10px;
+    display: flex;
+    gap: 0;
+    background: transparent;
+    padding: 0;
+    border-radius: 0;
     margin-bottom: 18px;
-    border: 1px solid var(--border);
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    width: 100%;
+    align-items: stretch;
   }
   .orc-status-tab {
     display: inline-flex;
     align-items: center;
-    gap: 7px;
-    padding: 8px 14px;
-    border-radius: 7px;
-    border: none;
+    gap: 8px;
+    padding: 12px 20px 11px;
+    border-radius: 0;
+    border: 0;
+    border-bottom: 2px solid transparent;
     background: transparent;
     color: var(--muted);
     font-size: 12.5px;
     font-weight: 500;
+    letter-spacing: 0.02em;
     cursor: pointer;
-    transition: all .18s cubic-bezier(.34, 1.2, .64, 1);
+    transition: color .15s ease, border-color .15s ease;
     white-space: nowrap;
+    margin-bottom: -1px;  /* sobrepõe a borda inferior do container */
   }
   .orc-status-tab svg {
     width: 14px;
@@ -4020,27 +4027,30 @@
   .orc-status-tab.active svg { opacity: 1; }
   .orc-status-tab:hover {
     color: var(--ink);
-    background: var(--surface);
+    border-bottom-color: var(--border);
   }
   .orc-status-tab.active {
-    background: var(--surface);
+    background: transparent;
     color: var(--ink);
     font-weight: 500;
-    box-shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+    border-bottom-color: var(--ink);
+    box-shadow: none;
   }
   .orc-status-tab-count {
-    background: var(--surface-3);
+    background: var(--surface-2);
     color: var(--muted);
     padding: 1px 8px;
     border-radius: 10px;
     font-size: 10.5px;
     font-weight: 500;
     font-variant-numeric: tabular-nums;
-    transition: all .18s;
+    transition: background .15s, color .15s;
+    border: 1px solid var(--border);
   }
   .orc-status-tab.active .orc-status-tab-count {
     background: var(--ink);
     color: #fff;
+    border-color: var(--ink);
   }
 
   /* Barra de navegação interna do CRM (visível em todas as subpáginas exceto Kanban) */

@@ -198,6 +198,9 @@ const repo = (() => {
   const _serverIds = {};
   // Hash do estado local após último sync (por entidade). Usado pra evitar upserts redundantes.
   const _lastSyncedHash = {};
+  // Tabelas que sabemos estar ausentes no Supabase (descobertas no bootstrap). Pula sync delas
+  // pra não poluir o console com o mesmo erro a cada saveDB.
+  const _missingTables = new Set();
 
   function _entityHash(items) {
     return JSON.stringify(items || []);
@@ -216,6 +219,7 @@ const repo = (() => {
     if (!window.DB) return;
     const tbl = _entityTable(entity);
     const key = _entityKey(entity);
+    if (_missingTables.has(tbl)) return; // tabela ainda não criada — não tenta
     const items = window.DB[key] || [];
     const hash = _entityHash(items);
     if (_lastSyncedHash[tbl] === hash) return; // sem mudanças
@@ -320,15 +324,33 @@ const repo = (() => {
       window.DB.logsAcesso = logsAcesso;
     }
 
-    // Fase 2+ — jsonb entities
-    const results = await Promise.all(JSONB_ENTITIES.map(e => loadJsonbEntity(_entityTable(e))));
+    // Fase 2+ — jsonb entities (carregamento resiliente: tabela faltante não derruba o login)
+    const results = await Promise.all(JSONB_ENTITIES.map(async e => {
+      try {
+        return { ok: true, items: await loadJsonbEntity(_entityTable(e)) };
+      } catch (err) {
+        const msg = (err && (err.message || err.error_description || '')) + '';
+        const tabelaFaltante = /Could not find the table|relation .* does not exist|schema cache/i.test(msg);
+        if (tabelaFaltante) {
+          console.warn(`[repo] Tabela "${_entityTable(e)}" ainda não existe no Supabase — usando lista vazia. Rode a migration SQL pra criar.`);
+          _missingTables.add(_entityTable(e));
+        } else {
+          console.error(`[repo] Falha ao carregar "${_entityTable(e)}":`, err);
+        }
+        return { ok: false, items: [] };
+      }
+    }));
     JSONB_ENTITIES.forEach((entity, i) => {
       const tbl = _entityTable(entity);
       const key = _entityKey(entity);
-      const items = results[i];
+      const { ok, items } = results[i];
       if (window.DB) window.DB[key] = items;
-      _serverIds[tbl] = new Set(items.map(x => String(x.id)));
-      _lastSyncedHash[tbl] = _entityHash(items);
+      // Só registra estado de sync se carregou de verdade — assim a tabela ausente não vira
+      // delete-missing no próximo sync (que apagaria dados locais por engano).
+      if (ok) {
+        _serverIds[tbl] = new Set(items.map(x => String(x.id)));
+        _lastSyncedHash[tbl] = _entityHash(items);
+      }
     });
 
     // Singletons (configOS, counters)

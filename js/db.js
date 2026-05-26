@@ -47,6 +47,7 @@ function loadDB() {
     if (!Array.isArray(merged.motoristas)) merged.motoristas = [];
     if (!Array.isArray(merged.rotas)) merged.rotas = [];
     if (!Array.isArray(merged.auditoriaExclusoes)) merged.auditoriaExclusoes = [];
+    if (!Array.isArray(merged.linhasProducao)) merged.linhasProducao = [];
     // Counters compatibility
     merged.counters = { ...def.counters, ...(saved.counters || {}) };
     return merged;

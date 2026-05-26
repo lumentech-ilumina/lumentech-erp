@@ -16,7 +16,7 @@
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <!-- Supabase JS SDK -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<link rel="stylesheet" href="styles.css?v=2026-05-21-mapa-fix">
+<link rel="stylesheet" href="styles.css?v=2026-05-26-kits-composicao">
 </head>
 <body>
 
@@ -231,6 +231,13 @@ function _fmtRef(id, tipo) {
 // Remove o prefixo legado (CLI-0005 → 5, VEI-0010 → 10) e zeros à esquerda,
 // para exibir IDs de cadastros como números simples (1, 2, 3...).
 // IDs novos já saem sem prefixo; este helper só limpa o que veio do banco antigo.
+// Retorna só o primeiro + segundo nome (ex: "Ronyel Rick Maker Silva" → "Ronyel Rick")
+function _nomeCurto(nome) {
+  if (!nome) return '';
+  const partes = String(nome).trim().split(/\s+/);
+  return partes.slice(0, 2).join(' ');
+}
+
 function _idLimpo(id) {
   if (id == null || id === '') return '';
   const s = String(id);
@@ -1989,7 +1996,7 @@ function converterOrcamento(id) {
 // ====== PEDIDOS ======
 function renderPedidos(parent) {
   pageHead(parent, 'Pedidos', `${DB.pedidos.length} pedido(s)`,
-    `<button class="btn btn-primary btn-sm" onclick="openPedidoModal()">${ICONS.plus} Novo pedido</button>`);
+    `<button class="btn btn-primary btn-sm" onclick="openPedidoModal()" title="Novo pedido" aria-label="Novo pedido" style="padding:6px 10px;display:inline-flex;align-items:center;justify-content:center;line-height:1">${ICONS.plus}</button>`);
 
   if (DB.pedidos.length === 0) {
     parent.appendChild(el('<div class="card"></div>')).appendChild(
@@ -2544,6 +2551,7 @@ function renderProducao(parent) {
               <div class="kanban-card" onclick="abrirOPPage('${op.id}')">
                 <div class="kc-title">${_fmtRef(op.id,'op')}</div>
                 <div class="kc-sub">${escapeHtml(op.cliente||'—')}</div>
+                ${op.cliente2 ? `<div class="kc-sub" style="font-size:10.5px;color:var(--muted);margin-top:1px">${escapeHtml(op.cliente2)}</div>` : ''}
                 <div class="kc-foot"><span>${op.pedidoId ? _fmtRef(op.pedidoId,'ped') : 'Avulsa'}</span><span style="color:var(--muted)">${op.dataPrevisao?isoToBR(op.dataPrevisao):''}</span></div>
               </div>
             `).join('')}
@@ -2649,7 +2657,10 @@ function _renderProdLista(parent, etapas) {
                   <tr style="cursor:pointer" onclick="abrirOPPage('${op.id}')">
                     <td><strong>${_fmtRef(op.id,'op')}</strong></td>
                     <td>${op.pedidoId ? _fmtRef(op.pedidoId,'ped') : '<span style="color:var(--muted-2)">Avulsa</span>'}</td>
-                    <td><div style="font-weight:500">${escapeHtml(op.cliente||'—')}</div></td>
+                    <td>
+                      <div style="font-weight:500">${escapeHtml(op.cliente||'—')}</div>
+                      ${op.cliente2 ? `<div style="font-size:10.5px;color:var(--muted);margin-top:1px">${escapeHtml(op.cliente2)}</div>` : ''}
+                    </td>
                     <td>${_statusBadge(op.etapa||'—', cor, op.etapa)}</td>
                     <td style="font-size:11.5px">${escapeHtml(op.linhaProducao||'—')}</td>
                     <td style="font-size:11.5px">${escapeHtml(op.responsavel||'—')}</td>
@@ -2710,6 +2721,7 @@ function _renderProdTimeline(parent, etapas) {
                       ${_statusBadge(op.etapa||'—', etapaCor, op.etapa)}
                     </div>
                     <div style="font-size:12px;color:var(--ink);font-weight:500">${escapeHtml(op.cliente||'—')}</div>
+                    ${op.cliente2 ? `<div style="font-size:10.5px;color:var(--muted);margin-top:1px">${escapeHtml(op.cliente2)}</div>` : ''}
                     <div style="font-size:11px;color:var(--muted);margin-top:3px">
                       ${op.pedidoId?_fmtRef(op.pedidoId,'ped'):'Avulsa'}${op.linhaProducao?' · '+escapeHtml(op.linhaProducao):''}${op.responsavel?' · '+escapeHtml(op.responsavel):''}
                     </div>
@@ -2748,7 +2760,7 @@ function abrirOPPage(id) {
     linhaProducao: '',
     observacao: '',
     dataEmissao: new Date().toISOString().slice(0,10),
-    dataPrevisao: new Date(Date.now() + 7 * 86400000).toISOString().slice(0,10),
+    dataPrevisao: '',  // vazio — operador preenche na OP
     etapa: 'Aguardando separação',
     status: 'aberta',
     criadoEm: new Date().toISOString(),
@@ -2779,11 +2791,12 @@ function renderOPPage(parent, opId) {
   // Pedido vinculado (pra puxar dados)
   const ped = editing.pedidoId ? DB.pedidos.find(p => p.id === editing.pedidoId) : null;
   const cliente = editing.cliente || ped?.cliente || '';
+  const cliente2 = editing.cliente2 || '';
   const composicao = Array.isArray(editing.composicao) ? editing.composicao : [];
   const etapas = ['Aguardando separação','Aguardando operador','Em produção','Inspeção','Embalagem','Armazenado','Entregue','Cancelado'];
 
   // Header da página
-  pageHead(parent, `OP <em>${_fmtRef(editing.id,'op')}</em>${ped?` · do pedido ${_fmtRef(ped.id,'ped')}`:''}`,
+  pageHead(parent, `<em>${escapeHtml(_fmtRef(editing.id,'op'))}</em>${ped?` · do pedido ${_fmtRef(ped.id,'ped')}`:''}`,
     editing._novaOP ? 'Nova ordem de produção avulsa' : `Cliente: ${escapeHtml(cliente)}`,
     `<button class="btn btn-secondary btn-sm" onclick="_fecharOPPage()">← Voltar ao kanban</button>`
   );
@@ -2804,10 +2817,15 @@ function renderOPPage(parent, opId) {
               <label>Nº de produção</label>
               <input type="text" value="${escapeHtml(_fmtRef(editing.id,'op'))}" disabled style="background:var(--surface-2)">
             </div>
-            <div class="fp-field">
-              <label>Cliente</label>
-              <input type="text" id="op-cliente" value="${escapeHtml(cliente)}" ${ped?'disabled style="background:var(--surface-2)"':''} placeholder="${ped?'':'Nome do cliente'}">
+            <div class="fp-field" style="position:relative">
+              <label>Cliente${ped?'':' <span style="font-weight:400;color:var(--muted);font-size:11px">(do cadastro)</span>'}</label>
+              <input type="text" id="op-cliente" value="${escapeHtml(cliente)}" ${ped?'disabled style="background:var(--surface-2)"':'autocomplete="off"'} placeholder="${ped?'':'Buscar cliente por nome, CPF, CNPJ...'}">
+              ${!ped ? `<div id="op-cliente-suggest" class="fp-suggest" style="position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:50;display:none;max-height:240px;overflow-y:auto"></div>` : ''}
             </div>
+          </div>
+          <div class="fp-field" style="margin-top:10px">
+            <label>Segundo cliente <span style="font-weight:400;color:var(--muted);font-size:11px">(opcional)</span></label>
+            <input type="text" id="op-cliente2" value="${escapeHtml(cliente2)}" placeholder="Cliente secundário (ex: arquiteto, parceiro, obra)">
           </div>
         </div>
 
@@ -2832,11 +2850,10 @@ function renderOPPage(parent, opId) {
         </div>
 
         <div class="fp-card">
-          <h3 class="fp-card-title">Produtos a produzir (do pedido)</h3>
+          <h3 class="fp-card-title">Produtos a produzir ${ped ? '(do pedido)' : '(OP avulsa)'}</h3>
           <div id="op-prods-do-ped">
-            ${(ped?.itens||[]).length === 0
-              ? '<div style="font-size:11.5px;color:var(--muted);padding:8px">Sem produtos vinculados (OP avulsa)</div>'
-              : (ped.itens||[]).map(it => `
+            ${(ped?.itens||[]).length > 0
+              ? (ped.itens||[]).map(it => `
                   <div style="display:flex;justify-content:space-between;padding:8px 12px;background:var(--surface-2);border-radius:6px;font-size:12px;margin-bottom:6px">
                     <div>
                       <strong>${escapeHtml(it.nome)}</strong>
@@ -2845,7 +2862,29 @@ function renderOPPage(parent, opId) {
                     <div><strong>${it.qtd||1}</strong> ${escapeHtml(it.unidade||'un')}</div>
                   </div>
                 `).join('')
+              : ''
             }
+            ${!ped ? `
+              <!-- OP avulsa: lista editável de fabricados + busca -->
+              ${(editing.itens||[]).length === 0
+                ? '<div style="font-size:11px;color:var(--muted);padding:6px 8px 10px;line-height:1.45">Adicione o produto fabricado a produzir. A composição de matérias-primas é trazida automaticamente do cadastro.</div>'
+                : (editing.itens||[]).map((it, i) => `
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;background:var(--surface-2);border-radius:6px;font-size:12px;margin-bottom:6px">
+                      <div style="flex:1;min-width:0">
+                        <strong>${escapeHtml(it.nome)}</strong>
+                        <span style="color:var(--muted);font-size:10.5px;margin-left:6px">${escapeHtml(it.produtoId ? _idLimpo(it.produtoId) : (it.sku||''))}</span>
+                      </div>
+                      <input type="number" class="op-avulsa-qtd" data-idx="${i}" value="${it.qtd||1}" min="1" step="1" style="width:70px;text-align:center;font-size:12px;border:1px solid var(--border);border-radius:4px;padding:4px 6px;font-family:var(--mono)">
+                      <span style="font-size:10.5px;color:var(--muted);min-width:24px">${escapeHtml(it.unidade||'un')}</span>
+                      <button type="button" class="op-avulsa-rm" data-idx="${i}" title="Remover" style="background:transparent;border:0;cursor:pointer;color:var(--danger);padding:2px 4px;font-size:14px">×</button>
+                    </div>
+                  `).join('')
+              }
+              <div style="position:relative;margin-top:6px">
+                <input type="text" id="op-add-fab" placeholder="Buscar produto fabricado (nome, ID ou SKU)..." autocomplete="off" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+                <div id="op-add-fab-suggest" class="fp-suggest" style="position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:50;display:none;max-height:240px;overflow-y:auto"></div>
+              </div>
+            ` : ''}
           </div>
         </div>
 
@@ -2858,7 +2897,7 @@ function renderOPPage(parent, opId) {
             ${composicao.length === 0
               ? '<div style="padding:18px;text-align:center;color:var(--muted);font-size:12px">Nenhuma matéria-prima na composição<br><span style="font-size:10.5px">Use "+ Adicionar material" pra montar a lista</span></div>'
               : `<table class="tbl" style="font-size:12px;width:100%">
-                  <thead><tr><th style="width:120px">Material (SKU)</th><th>Nome</th><th class="num" style="width:90px">Qtd un.</th><th class="num" style="width:90px">Total</th><th class="num" style="width:70px">Un.</th><th style="width:40px"></th></tr></thead>
+                  <thead><tr><th style="width:120px">ID produto</th><th>Nome</th><th class="num" style="width:90px">Qtd un.</th><th class="num" style="width:90px">Total</th><th class="num" style="width:70px">Un.</th><th style="width:40px"></th></tr></thead>
                   <tbody id="op-comp-tbody">${composicao.map((c, idx) => _renderLinhaComposicao(c, idx)).join('')}</tbody>
                 </table>`
             }
@@ -2871,11 +2910,20 @@ function renderOPPage(parent, opId) {
           <div class="fp-grid-2">
             <div class="fp-field">
               <label>Linha de produção</label>
-              <input type="text" id="op-linha" value="${escapeHtml(editing.linhaProducao||'')}" placeholder="Ex: Linha A · Setor LED">
+              <select id="op-linha" class="fp-select">
+                <option value="" ${!editing.linhaProducao?'selected':''}>Selecionar...</option>
+                <option value="OrgLight™" ${editing.linhaProducao==='OrgLight™'?'selected':''}>OrgLight™</option>
+                <option value="INK™ by Lumentech®" ${editing.linhaProducao==='INK™ by Lumentech®'?'selected':''}>INK™ by Lumentech®</option>
+                <option value="Linha Scena" ${editing.linhaProducao==='Linha Scena'?'selected':''}>Scena</option>
+                <option value="Misto" ${editing.linhaProducao==='Misto'?'selected':''}>Misto</option>
+              </select>
             </div>
             <div class="fp-field">
               <label>Responsável</label>
-              <input type="text" id="op-resp" value="${escapeHtml(editing.responsavel||'')}" placeholder="Nome do operador">
+              <select id="op-resp" class="fp-select">
+                <option value="">— Selecione um usuário —</option>
+                ${(DB.usuarios||[]).filter(u => u.ativo !== false).map(u => `<option value="${escapeHtml(u.nome||u.email||'')}" ${editing.responsavel===(u.nome||u.email)?'selected':''}>${escapeHtml(_nomeCurto(u.nome||u.email||''))}</option>`).join('')}
+              </select>
             </div>
           </div>
           <div class="fp-field">
@@ -2886,6 +2934,16 @@ function renderOPPage(parent, opId) {
 
         <div class="fp-card">
           <h3 class="fp-card-title">Anexos <span style="font-weight:400;color:var(--muted);font-size:12px">(${(editing.anexos||[]).length})</span></h3>
+          <div class="fp-grid-2" style="margin-bottom:12px">
+            <div class="fp-field">
+              <label>Nº da NF</label>
+              <input type="text" id="op-nf-numero" value="${escapeHtml(editing.nfNumero||'')}" placeholder="Ex: 000.123.456">
+            </div>
+            <div class="fp-field">
+              <label>Série / Chave da NF <span style="font-weight:400;color:var(--muted);font-size:11px">(opcional)</span></label>
+              <input type="text" id="op-nf-chave" value="${escapeHtml(editing.nfChave||'')}" placeholder="Série ou chave de acesso">
+            </div>
+          </div>
           <div id="op-anexos-lista" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">
             ${(editing.anexos||[]).length === 0
               ? '<div style="padding:14px;text-align:center;color:var(--muted);font-size:11.5px;">Nenhum arquivo anexado</div>'
@@ -3009,15 +3067,283 @@ function renderOPPage(parent, opId) {
     });
   }
 
+  // ============ OP AVULSA: autocomplete de Cliente vinculado ao cadastro ============
+  const cliInp = wrap.querySelector('#op-cliente');
+  const cliSuggest = wrap.querySelector('#op-cliente-suggest');
+  if (cliInp && cliSuggest && !cliInp.disabled) {
+    let _cliTimer;
+    function renderCliSuggest(q) {
+      cliSuggest.innerHTML = '';
+      if (!q || q.length < 1) { cliSuggest.style.display = 'none'; return; }
+      const ql = q.toLowerCase();
+      const qDigits = ql.replace(/\D/g,'');
+      const matches = (DB.clientes||[]).filter(c => {
+        const nome = (c.nome||'').toLowerCase();
+        const docCli = (c.cpf || c.cnpj || c.doc || '').replace(/\D/g,'');
+        const tel = (c.telefone || '').replace(/\D/g,'');
+        return nome.includes(ql) || (qDigits && (docCli.includes(qDigits) || tel.includes(qDigits)));
+      }).slice(0, 8);
+      if (matches.length === 0) {
+        cliSuggest.innerHTML = `<div class="fp-suggest-item" style="cursor:default;color:var(--muted);text-align:center;line-height:1.5">Nenhum cliente encontrado<br><span style="font-size:10px">Cadastre em <strong>Cadastros → Clientes</strong></span></div>`;
+      } else {
+        matches.forEach(cli => {
+          const docCli = cli.cpf || cli.cnpj || cli.doc || '';
+          const item = el(`
+            <div class="fp-suggest-item">
+              <div style="font-weight:500">${escapeHtml(cli.nome||'(sem nome)')}</div>
+              <div style="font-size:10.5px;color:var(--muted);margin-top:2px">${docCli ? 'Doc: '+escapeHtml(docCli) : ''}${cli.telefone ? ' · '+escapeHtml(cli.telefone) : ''}</div>
+            </div>
+          `);
+          item.onclick = () => {
+            editing.cliente = cli.nome;
+            editing.clienteId = cli.id;
+            cliInp.value = cli.nome;
+            cliSuggest.style.display = 'none';
+          };
+          cliSuggest.appendChild(item);
+        });
+      }
+      cliSuggest.style.display = 'block';
+    }
+    cliInp.addEventListener('input', () => {
+      clearTimeout(_cliTimer);
+      _cliTimer = setTimeout(() => renderCliSuggest(cliInp.value.trim()), 120);
+    });
+    document.addEventListener('click', (e) => {
+      if (!cliSuggest.contains(e.target) && e.target !== cliInp) cliSuggest.style.display = 'none';
+    });
+  }
+
+  // ============ OP AVULSA: busca de produto fabricado ============
+  // Quando não há pedido vinculado, o usuário escolhe o(s) produto(s) fabricado(s)
+  // a produzir. A composição de matérias-primas é trazida do cadastro do produto.
+  const fabBusca = wrap.querySelector('#op-add-fab');
+  const fabSuggest = wrap.querySelector('#op-add-fab-suggest');
+  if (fabBusca && fabSuggest) {
+    let _fabTimer;
+    function renderFabSuggest(q) {
+      fabSuggest.innerHTML = '';
+      if (!q || q.length < 1) { fabSuggest.style.display = 'none'; return; }
+      const ql = q.toLowerCase();
+      const qDigits = ql.replace(/\D/g,'');
+      // Só produtos do tipo "acabado" (fabricado internamente)
+      const matches = (DB.produtos||[]).filter(p => {
+        if (p.tipo !== 'acabado') return false;
+        if (p.ativo === false) return false;
+        const hit =
+          (p.nome||'').toLowerCase().includes(ql) ||
+          (p.sku||'').toLowerCase().includes(ql) ||
+          (p.id||'').toLowerCase().includes(ql) ||
+          (qDigits && (p.id||'').replace(/\D/g,'').includes(qDigits));
+        return hit;
+      }).slice(0, 8);
+      if (matches.length === 0) {
+        fabSuggest.innerHTML = `<div class="fp-suggest-item" style="cursor:default;color:var(--muted);text-align:center;line-height:1.5">Nenhum produto fabricado encontrado<br><span style="font-size:10px">Cadastre em <strong>Produtos → Novo produto</strong> com tipo <em>Fabricado</em></span></div>`;
+      } else {
+        matches.forEach(prod => {
+          const idClean = _idLimpo(prod.id);
+          const nComp = Array.isArray(prod.componentes) ? prod.componentes.length : 0;
+          const item = el(`
+            <div class="fp-suggest-item">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+                <div style="flex:1;min-width:0">
+                  <div style="font-weight:500">${escapeHtml(prod.nome)}</div>
+                  <div style="font-size:10.5px;color:var(--muted);margin-top:2px">ID: ${escapeHtml(idClean)}${prod.sku?` · SKU ${escapeHtml(prod.sku)}`:''}</div>
+                </div>
+                <div style="text-align:right;flex-shrink:0">
+                  <div style="font-size:10.5px;color:${nComp?'#1D9E75':'#9A6A0A'};font-weight:500">${nComp?`${nComp} matéria(s)`:'Sem composição'}</div>
+                </div>
+              </div>
+            </div>
+          `);
+          item.onclick = () => {
+            // Adiciona o produto fabricado em itens
+            editing.itens = editing.itens || [];
+            editing.itens.push({
+              produtoId: prod.id,
+              sku: prod.sku || prod.id,
+              nome: prod.nome,
+              qtd: 1,
+              unidade: prod.unidade || 'un',
+            });
+            // Traz composição do cadastro do fabricado (multiplicada pela qtd do item)
+            const qtdProduzir = 1;
+            (prod.componentes || []).forEach(comp => {
+              const compProd = (DB.produtos||[]).find(p => p.id === comp.produtoId);
+              if (!compProd) return;
+              composicao.push({
+                produtoId: compProd.id,
+                sku: compProd.sku || compProd.id,
+                nome: compProd.nome,
+                qtdUnit: Number(comp.qtd||0),
+                qtdProduzir,
+                qtdTotal: Number(comp.qtd||0) * qtdProduzir,
+                unidade: compProd.unidade || 'un',
+              });
+            });
+            editing.composicao = composicao;
+            fabBusca.value = '';
+            fabSuggest.style.display = 'none';
+            renderPage('producao');
+          };
+          fabSuggest.appendChild(item);
+        });
+      }
+      fabSuggest.style.display = 'block';
+    }
+    fabBusca.addEventListener('input', () => {
+      clearTimeout(_fabTimer);
+      _fabTimer = setTimeout(() => renderFabSuggest(fabBusca.value.trim()), 120);
+    });
+    document.addEventListener('click', (e) => {
+      if (!fabSuggest.contains(e.target) && e.target !== fabBusca) fabSuggest.style.display = 'none';
+    });
+  }
+  // Editar qtd / remover item de OP avulsa — recalcula composição relativa ao item
+  wrap.querySelectorAll('.op-avulsa-qtd').forEach(inp => {
+    inp.oninput = () => {
+      const idx = +inp.dataset.idx;
+      const it = (editing.itens||[])[idx];
+      if (!it) return;
+      it.qtd = Math.max(1, parseInt(inp.value) || 1);
+      // Recalcula totais da composição: somatório de cada material por todas as ocorrências
+      // Aqui usamos a estratégia simples: recomputar tudo do zero a partir dos itens.
+      composicao.length = 0;
+      (editing.itens||[]).forEach(it2 => {
+        const prod = (DB.produtos||[]).find(p => p.id === it2.produtoId);
+        if (!prod) return;
+        const qProd = Number(it2.qtd||1);
+        (prod.componentes||[]).forEach(comp => {
+          const compProd = (DB.produtos||[]).find(p => p.id === comp.produtoId);
+          if (!compProd) return;
+          const existente = composicao.find(c => c.produtoId === compProd.id);
+          const qtdAdd = Number(comp.qtd||0) * qProd;
+          if (existente) {
+            existente.qtdTotal = (existente.qtdTotal||0) + qtdAdd;
+          } else {
+            composicao.push({
+              produtoId: compProd.id,
+              sku: compProd.sku || compProd.id,
+              nome: compProd.nome,
+              qtdUnit: Number(comp.qtd||0),
+              qtdProduzir: qProd,
+              qtdTotal: qtdAdd,
+              unidade: compProd.unidade || 'un',
+            });
+          }
+        });
+      });
+      editing.composicao = composicao;
+      renderPage('producao');
+    };
+  });
+  wrap.querySelectorAll('.op-avulsa-rm').forEach(btn => {
+    btn.onclick = () => {
+      const idx = +btn.dataset.idx;
+      (editing.itens||[]).splice(idx, 1);
+      // Recalcula composição
+      composicao.length = 0;
+      (editing.itens||[]).forEach(it2 => {
+        const prod = (DB.produtos||[]).find(p => p.id === it2.produtoId);
+        if (!prod) return;
+        const qProd = Number(it2.qtd||1);
+        (prod.componentes||[]).forEach(comp => {
+          const compProd = (DB.produtos||[]).find(p => p.id === comp.produtoId);
+          if (!compProd) return;
+          const existente = composicao.find(c => c.produtoId === compProd.id);
+          const qtdAdd = Number(comp.qtd||0) * qProd;
+          if (existente) {
+            existente.qtdTotal = (existente.qtdTotal||0) + qtdAdd;
+          } else {
+            composicao.push({
+              produtoId: compProd.id,
+              sku: compProd.sku || compProd.id,
+              nome: compProd.nome,
+              qtdUnit: Number(comp.qtd||0),
+              qtdProduzir: qProd,
+              qtdTotal: qtdAdd,
+              unidade: compProd.unidade || 'un',
+            });
+          }
+        });
+      });
+      editing.composicao = composicao;
+      renderPage('producao');
+    };
+  });
+
   // Bind: adicionar material da composição
   wrap.querySelector('#op-add-comp').onclick = () => {
     composicao.push({ sku:'', nome:'', qtdUnit:1, qtdProduzir:1, qtdTotal:1, unidade:'un' });
     editing.composicao = composicao;
     renderPage('producao');
   };
-  // Bind: editar/remover linhas
+  // Bind: editar/remover linhas + autocomplete vinculado ao estoque
   const tbody = wrap.querySelector('#op-comp-tbody');
   if (tbody) {
+    // Renderiza sugestões do estoque pra um <tr>
+    // Filtra somente produtos do tipo "matéria-prima" cadastrados em DB.produtos.
+    // Itens do DB.estoque legado (sem tipo) ficam de fora.
+    function _renderSugestoesComp(tr, q) {
+      const suggestBox = tr.querySelector('.op-comp-suggest');
+      if (!suggestBox) return;
+      suggestBox.innerHTML = '';
+      if (!q || q.length < 1) { suggestBox.style.display = 'none'; return; }
+      const brutos = (typeof buscarProdutosUnificado === 'function') ? buscarProdutosUnificado(q, 30) : [];
+      const matches = brutos.filter(r => {
+        if (r.origem !== 'produto') return false; // estoque legado não tem tipo confiável
+        const prod = (DB.produtos||[]).find(p => p.id === (r.idOrigem||r.id));
+        return prod && prod.tipo === 'materia_prima';
+      }).slice(0, 8);
+      if (matches.length === 0) {
+        suggestBox.innerHTML = `<div class="fp-suggest-item" style="cursor:default;color:var(--muted);text-align:center;line-height:1.5">Nenhuma matéria-prima encontrada<br><span style="font-size:10px">Cadastre em <strong>Produtos → Novo produto</strong> com tipo <em>Matéria-prima</em></span></div>`;
+      } else {
+        matches.forEach(prod => {
+          const disp = Number(prod.disponivel||0);
+          const corEst = disp <= 0 ? '#B0241F' : disp < 5 ? '#9A6A0A' : '#1D9E75';
+          const labelEst = disp <= 0 ? 'Sem estoque' : `${fmtInt(disp)} ${escapeHtml(prod.unidade||'un')} disp.`;
+          const extras = [
+            (prod.idOrigem || prod.id) ? `ID: ${escapeHtml(_idLimpo(prod.idOrigem||prod.id))}` : null,
+            prod.codigoBarras ? `EAN: ${escapeHtml(prod.codigoBarras)}` : null,
+            prod.categoria ? escapeHtml(prod.categoria) : null,
+          ].filter(Boolean).join(' · ');
+          const item = el(`
+            <div class="fp-suggest-item">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+                <div style="flex:1;min-width:0">
+                  <div style="font-weight:500">${escapeHtml(prod.nome)}</div>
+                  <div style="font-size:10.5px;color:var(--muted);margin-top:2px">${extras}</div>
+                </div>
+                <div style="text-align:right;flex-shrink:0">
+                  <div style="font-family:var(--mono);font-size:11px;font-weight:500;color:${corEst}">${labelEst}</div>
+                </div>
+              </div>
+            </div>
+          `);
+          item.onclick = () => {
+            const tr2 = suggestBox.closest('tr[data-idx]');
+            const i2 = +tr2.dataset.idx;
+            const c2 = composicao[i2];
+            if (!c2) return;
+            c2.produtoId = prod.idOrigem || prod.id || '';
+            c2.sku = prod.sku || prod.id || '';
+            c2.nome = prod.nome;
+            c2.unidade = prod.unidade || 'un';
+            const idDispEl = tr2.querySelector('[data-field="produtoIdDisp"]');
+            if (idDispEl) idDispEl.value = _idLimpo(c2.produtoId) || c2.sku || '';
+            const nomeEl = tr2.querySelector('[data-field="nome"]');
+            if (nomeEl) nomeEl.value = c2.nome;
+            const unEl = tr2.querySelector('[data-field="unidade"]');
+            if (unEl) unEl.value = c2.unidade;
+            suggestBox.style.display = 'none';
+          };
+          suggestBox.appendChild(item);
+        });
+      }
+      suggestBox.style.display = 'block';
+    }
+
+    let _opCompTimer;
     tbody.addEventListener('input', (e) => {
       const tr = e.target.closest('tr[data-idx]');
       if (!tr) return;
@@ -3025,24 +3351,25 @@ function renderOPPage(parent, opId) {
       const c = composicao[idx];
       if (!c) return;
       const cls = e.target.dataset.field;
-      if (cls === 'sku') {
-        c.sku = e.target.value.toUpperCase();
-        const est = (DB.estoque||[]).find(x => x.sku === c.sku);
-        if (est) {
-          const nomeEl = tr.querySelector('[data-field="nome"]');
-          if (nomeEl) nomeEl.value = est.nome;
-          c.nome = est.nome;
-          const unEl = tr.querySelector('[data-field="unidade"]');
-          if (unEl) unEl.value = est.unidade||'un';
-          c.unidade = est.unidade||'un';
-        }
+      if (cls === 'nome') {
+        c.nome = e.target.value;
+        // Dispara autocomplete debounced
+        clearTimeout(_opCompTimer);
+        _opCompTimer = setTimeout(() => _renderSugestoesComp(tr, e.target.value.trim()), 120);
       }
-      if (cls === 'nome') c.nome = e.target.value;
       if (cls === 'qtdUnit') c.qtdUnit = parseFloat(e.target.value) || 0;
       if (cls === 'unidade') c.unidade = e.target.value;
       c.qtdTotal = (c.qtdUnit||0) * (c.qtdProduzir||1);
       const totalEl = tr.querySelector('.op-comp-total');
       if (totalEl) totalEl.textContent = c.qtdTotal.toFixed(2);
+    });
+    // Fecha sugestões ao clicar fora
+    document.addEventListener('click', (e) => {
+      tbody.querySelectorAll('.op-comp-suggest').forEach(box => {
+        const tr = box.closest('tr[data-idx]');
+        const nomeInp = tr?.querySelector('[data-field="nome"]');
+        if (!box.contains(e.target) && e.target !== nomeInp) box.style.display = 'none';
+      });
     });
     tbody.addEventListener('click', (e) => {
       const btn = e.target.closest('[data-rm]');
@@ -3112,6 +3439,12 @@ function renderOPPage(parent, opId) {
     editing.composicao = composicao;
     const cliEl = wrap.querySelector('#op-cliente');
     if (cliEl && !cliEl.disabled) editing.cliente = cliEl.value.trim();
+    const cli2El = wrap.querySelector('#op-cliente2');
+    if (cli2El) editing.cliente2 = cli2El.value.trim();
+    const nfNumEl = wrap.querySelector('#op-nf-numero');
+    if (nfNumEl) editing.nfNumero = nfNumEl.value.trim();
+    const nfChaveEl = wrap.querySelector('#op-nf-chave');
+    if (nfChaveEl) editing.nfChave = nfChaveEl.value.trim();
     // Nova OP: adiciona ao DB e reserva materiais
     if (editing._novaOP) {
       delete editing._novaOP;
@@ -3128,13 +3461,17 @@ function renderOPPage(parent, opId) {
 
 // Renderiza uma linha da tabela de composição (editável inline)
 function _renderLinhaComposicao(c, idx) {
+  const idDisplay = c.produtoId ? _idLimpo(c.produtoId) : (c.sku || '');
   return `
     <tr data-idx="${idx}">
-      <td><input type="text" data-field="sku" value="${escapeHtml(c.sku||'')}" placeholder="SKU" style="width:100%;font-family:var(--mono);font-size:11px;text-transform:uppercase"></td>
-      <td><input type="text" data-field="nome" value="${escapeHtml(c.nome||'')}" placeholder="Nome do material" style="width:100%;font-size:11.5px"></td>
-      <td class="num"><input type="number" data-field="qtdUnit" value="${c.qtdUnit||0}" step="0.01" min="0" style="width:100%;text-align:right;font-size:11.5px"></td>
+      <td><input type="text" data-field="produtoIdDisp" value="${escapeHtml(idDisplay)}" placeholder="—" readonly style="width:100%;font-family:var(--mono);font-size:11px;text-transform:uppercase;background:var(--surface-2);color:var(--ink-2);border:1px solid var(--border);border-radius:4px;padding:5px 8px;cursor:default"></td>
+      <td style="position:relative">
+        <input type="text" data-field="nome" value="${escapeHtml(c.nome||'')}" placeholder="Buscar produto no estoque (nome, SKU, EAN)" autocomplete="off" style="width:100%;font-size:11.5px;border:1px solid var(--border);border-radius:4px;padding:5px 8px">
+        <div class="op-comp-suggest fp-suggest" data-suggest-idx="${idx}" style="position:absolute;top:calc(100% + 2px);left:0;right:0;z-index:50;display:none;max-height:240px;overflow-y:auto"></div>
+      </td>
+      <td class="num"><input type="number" data-field="qtdUnit" value="${c.qtdUnit||0}" step="0.01" min="0" style="width:100%;text-align:right;font-size:11.5px;border:1px solid var(--border);border-radius:4px;padding:5px 8px"></td>
       <td class="num"><span class="op-comp-total" style="font-weight:500">${(c.qtdTotal||0).toFixed(2)}</span></td>
-      <td class="num"><input type="text" data-field="unidade" value="${escapeHtml(c.unidade||'un')}" maxlength="5" style="width:100%;text-align:center;font-size:11px"></td>
+      <td class="num"><input type="text" data-field="unidade" value="${escapeHtml(c.unidade||'un')}" maxlength="5" style="width:100%;text-align:center;font-size:11px;border:1px solid var(--border);border-radius:4px;padding:5px 6px"></td>
       <td><button type="button" data-rm="${idx}" style="background:transparent;border:0;cursor:pointer;color: var(--danger);padding:4px" title="Remover">×</button></td>
     </tr>
   `;
@@ -5871,7 +6208,6 @@ function renderClientesSubpage() {
   const content = $('#clientes-content');
   if (!content) return;
   _swapComFade(content, (wrap) => {
-    wrap.appendChild(_cliStatusTabsElement());
     const renderers = {
       dashboard: renderClientesDashboard,
       todos: (p) => renderClientesLista(p, null),
@@ -5880,6 +6216,11 @@ function renderClientesSubpage() {
       interacoes: renderClientesInteracoes,
     };
     (renderers[_cliSubpage] || renderers.todos)(wrap);
+    // App bar entra logo APÓS o título da página (page-head do renderer)
+    const head = wrap.querySelector('.page-head');
+    const tabs = _cliStatusTabsElement();
+    if (head && head.parentNode) head.parentNode.insertBefore(tabs, head.nextSibling);
+    else wrap.insertBefore(tabs, wrap.firstChild);
   });
 }
 
@@ -6629,7 +6970,6 @@ function renderParceirosSubpage() {
   // Default da página: começar em "Parceiros" (lista), não no dashboard
   if (!['dashboard','lista','comissoes','ranking'].includes(_parceirosSubpage)) _parceirosSubpage = 'lista';
   _swapComFade(content, (wrap) => {
-    wrap.appendChild(_parStatusTabsElement());
     const renderers = {
       dashboard: renderParceirosDashboard,
       lista: renderParceirosLista,
@@ -6637,6 +6977,11 @@ function renderParceirosSubpage() {
       ranking: renderParceirosRanking,
     };
     (renderers[_parceirosSubpage] || renderParceirosLista)(wrap);
+    // App bar entra logo APÓS o título da página (page-head do renderer)
+    const head = wrap.querySelector('.page-head');
+    const tabs = _parStatusTabsElement();
+    if (head && head.parentNode) head.parentNode.insertBefore(tabs, head.nextSibling);
+    else wrap.insertBefore(tabs, wrap.firstChild);
   });
 }
 
@@ -7439,7 +7784,7 @@ function renderOrcLista(parent, statusFilter, pageKey) {
     : DB.orcamentos;
 
   pageHead(parent, titulo, `${filtrados.length} orçamento(s)`,
-    `<button class="btn btn-primary btn-sm" onclick="abrirOrcamentoModal()">${ICONS.plus} Novo orçamento</button>`);
+    `<button class="btn btn-primary btn-sm" onclick="abrirOrcamentoModal()" title="Novo orçamento" aria-label="Novo orçamento" style="padding:6px 10px;display:inline-flex;align-items:center;justify-content:center;line-height:1">${ICONS.plus}</button>`);
 
   // Busca + Filtros SEMPRE renderizados (mesmo com lista vazia) — assim o usuário sempre
   // consegue trocar de tab e usar a busca. O popover é renderizado em seguida.
@@ -7669,6 +8014,10 @@ function renderOrcRow(o) {
   } else if (o.oportunidadeId) {
     vinculoLinha = `<div style="font-size:10px;color:var(--muted);margin-top:3px">↗ CRM ${o.oportunidadeId}</div>`;
   }
+  // Pedido origem (quando este orçamento foi gerado a partir de uma troca de outro pedido)
+  if (o.pedidoOrigemId) {
+    vinculoLinha += `<div style="font-size:10px;color:#6B4A0A;margin-top:3px;font-weight:500;cursor:pointer" onclick="event.stopPropagation();navigate('pedidos');setTimeout(()=>{if(typeof abrirPedidoTimeline==='function') abrirPedidoTimeline('${o.pedidoOrigemId}');},200)" title="Abrir pedido origem ${_fmtRef(o.pedidoOrigemId,'ped')}">↪ Origem ${_fmtRef(o.pedidoOrigemId,'ped')}</div>`;
+  }
 
   // Vínculo de clonagem
   let cloneInfo = '';
@@ -7684,8 +8033,10 @@ function renderOrcRow(o) {
   // Marcador "Original" abaixo da situação (sem badge, texto minimalista) quando o orçamento foi clonado
   const marcadorOriginal = o.substituidoPor ? `<div style="font-size:10.5px;color:var(--muted);margin-top:4px;letter-spacing:0.02em">Original</div>` : '';
 
-  // Admin pode editar mesmo clones/originais superados
-  const podeEditar = !['Cancelado','Convertido','Recusado','Expirado'].includes(o.status) && (!o.substituidoPor || isUsuarioAdmin());
+  // Admin pode editar mesmo clones/originais superados e orçamentos vindos de troca
+  const podeEditar = !['Cancelado','Convertido','Recusado','Expirado'].includes(o.status)
+    && (!o.substituidoPor || isUsuarioAdmin())
+    && (!o.origemTrocaId || isUsuarioAdmin());
 
   return `
     <tr class="orc-row" data-orcid="${o.id}" style="${rowStyle}">
@@ -7696,7 +8047,18 @@ function renderOrcRow(o) {
       </td>
       <td class="num" style="font-size:11.5px;color:var(--muted)">${o.data||'—'}</td>
       <td class="num" style="font-size:11.5px;color:var(--muted)">${o.validade||'—'}</td>
-      <td><span class="badge ${badgeOrc(o.status)}">${o.status}</span>${marcadorOriginal}${vinculoLinha}</td>
+      <td>
+        <span class="badge ${badgeOrc(o.status)}">${o.status}</span>
+        ${(() => {
+          if (!o.origemTrocaId && !o.origemDevolucaoId) return '';
+          let tag = o.tagOrigem || (o.origemDevolucaoId ? 'Devolução' : 'Troca');
+          let cor = '#1E4F8F'; // Troca → azul
+          if (tag === 'Troca garantia') cor = '#BA7517'; // laranja/âmbar
+          else if (tag === 'Devolução')  cor = '#B0241F'; // vermelho institucional
+          return `<span style="display:inline-block;margin-left:6px;color:${cor};font-size:10px;font-weight:500;letter-spacing:.05em;text-transform:uppercase;padding:1px 7px;border:1px solid ${cor}55;border-radius:3px;background:${cor}10">${escapeHtml(tag)}</span>`;
+        })()}
+        ${marcadorOriginal}${vinculoLinha}
+      </td>
       <td>${renderVendedorCard(o.vendedor)}</td>
       <td class="num num-strong">${brl(o.valor)}</td>
       <td onclick="event.stopPropagation()" style="text-align:right">
@@ -7704,7 +8066,7 @@ function renderOrcRow(o) {
           <button class="orc-acao" onclick="executarAcaoOrcamento('${o.id}','editar')" title="${o.substituidoPor && podeEditar ? 'Editar (admin · orçamento superado)' : 'Editar'}" ${!podeEditar?'disabled':''}>${ICONS.edit}</button>
           <button class="orc-acao orc-acao-crm" onclick="executarAcaoOrcamento('${o.id}','${o.oportunidadeId?'reenviarCrm':'enviarCrm'}')" title="${o.oportunidadeId?'Reenviar/atualizar CRM':'Enviar para CRM'}">${ICONS.crm}${o.oportunidadeId?'<span class="orc-acao-dot"></span>':''}</button>
           <button class="orc-acao" onclick="executarAcaoOrcamento('${o.id}','pdf')" title="Gerar PDF">${ICONS['file-text']||ICONS.download}</button>
-          ${!['Cancelado','Convertido','Recusado','Expirado'].includes(o.status) && !o.substituidoPor ? `
+          ${!['Cancelado','Convertido','Recusado','Expirado'].includes(o.status) && !o.substituidoPor && !o.origemTrocaId ? `
             <button class="orc-acao orc-acao-converter" onclick="executarAcaoOrcamento('${o.id}','converter')" title="Converter em pedido de venda">${ICONS['shopping-bag']||ICONS.check}</button>
           ` : ''}
           <button class="orc-acao orc-acao-more" onclick="abrirMenuAcoesOrcamento('${o.id}', this)" title="Mais ações">
@@ -11049,10 +11411,10 @@ function abrirOrcamentoDetalhe(id) {
 // =====================================================
 // PDF DOCUMENTO (Orçamento ou Pedido de Venda) — template único, padrão visual unificado
 // =====================================================
-function gerarPDFOrcamento(id, modo) {
+function gerarPDFOrcamento(id, modo, pdfOpts) {
   const o = DB.orcamentos.find(x => x.id === id);
   if (!o) { toast('Orçamento não encontrado', 'danger'); return; }
-  if (!modo) { escolherModoPDF((m) => gerarPDFOrcamento(id, m), o); return; }
+  if (!modo) { escolherModoPDF((m, extras) => gerarPDFOrcamento(id, m, extras), o); return; }
   gerarPDFDocumento(o, {
     tipoDoc: 'orcamento',
     titulo: 'Orçamento',
@@ -11062,13 +11424,14 @@ function gerarPDFOrcamento(id, modo) {
     valorDataSecundaria: o.validade || '—',
     orcamentoOrigem: null,
     modo,
+    semApresentacao: !!(pdfOpts && pdfOpts.semApresentacao),
   });
 }
 
-function gerarPDFPedido(id, modo) {
+function gerarPDFPedido(id, modo, pdfOpts) {
   const p = DB.pedidos.find(x => x.id === id);
   if (!p) { toast('Pedido não encontrado', 'danger'); return; }
-  if (!modo) { escolherModoPDF((m) => gerarPDFPedido(id, m), p); return; }
+  if (!modo) { escolherModoPDF((m, extras) => gerarPDFPedido(id, m, extras), p); return; }
   // Monta um objeto compatível com o template: começa do orçamento de origem (se houver)
   // e sobrescreve com dados do pedido.
   const orcOrigem = p.orcamentoId ? DB.orcamentos.find(o => o.id === p.orcamentoId) : null;
@@ -11104,35 +11467,86 @@ function gerarPDFPedido(id, modo) {
     valorDataSecundaria: p.entrega ? isoToBR(p.entrega) : null,
     orcamentoOrigem: p.orcamentoId || null,
     modo,
+    semApresentacao: !!(pdfOpts && pdfOpts.semApresentacao),
   });
 }
 
-// Modal de seleção do modo do PDF (Padrão vs Ambientado).
-// Se não há ambientes, pula direto pro modo Padrão.
+// Modal de seleção do modo do PDF.
+// Duas dimensões independentes: apresentação (com ou sem páginas institucionais)
+// e formato do conteúdo (Padrão / Ambientado). Quando não há ambientes,
+// o seletor de formato vira info estática.
 function escolherModoPDF(callback, doc) {
   const ambientes = (doc?.ambientes || []).filter(a => a && (a.padraoId || a.nome || a.label));
-  if (ambientes.length === 0) { callback('padrao'); return; }
+  const temAmbientes = ambientes.length > 0;
+
+  // Estado local da escolha
+  const sel = { apresentacao: 'com', formato: 'padrao' };
+
+  function pillBtn(id, label, sub, dataAttr, val, active) {
+    return `
+      <button type="button" id="${id}" data-${dataAttr}="${val}" class="pdf-pill ${active?'is-active':''}"
+        style="flex:1;padding:12px 14px;border:1.5px solid ${active?'var(--ink)':'var(--border)'};border-radius:8px;background:${active?'var(--ink)':'var(--surface)'};color:${active?'var(--lumentech-white)':'var(--ink-2)'};cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:3px">
+        <strong style="font-size:13px;font-weight:500">${label}</strong>
+        <span style="font-size:11px;opacity:${active?'0.85':'0.7'};line-height:1.35">${sub}</span>
+      </button>`;
+  }
+
   const m = openModal({
-    title: 'Formato do documento',
+    title: 'Formato do PDF',
     size: 'sm',
     body: `
-      <div style="display:flex;flex-direction:column;gap:10px">
-        <button class="btn btn-secondary" id="pdf-modo-padrao" style="text-align:left;padding:14px;display:flex;flex-direction:column;align-items:flex-start;gap:4px">
-          <strong style="font-size:13px">📋 Padrão</strong>
-          <span style="font-size:11.5px;color:var(--muted);font-weight:400">Lista única de produtos, sem separação por ambiente</span>
-        </button>
-        <button class="btn btn-primary" id="pdf-modo-amb" style="text-align:left;padding:14px;display:flex;flex-direction:column;align-items:flex-start;gap:4px">
-          <strong style="font-size:13px">🏠 Ambientado</strong>
-          <span style="font-size:11.5px;color:rgba(255,255,255,.8);font-weight:400">Produtos agrupados por ambiente com subtotal individual</span>
-        </button>
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500;display:block;margin-bottom:6px">Apresentação</label>
+          <div style="display:flex;gap:8px" id="pdf-apresentacao">
+            ${pillBtn('pdf-apr-com','Com apresentação','Capa, "do seu jeito" e sobre a Lumentech','apresentacao','com',true)}
+            ${pillBtn('pdf-apr-sem','Sem apresentação','Só o orçamento, direto na primeira página','apresentacao','sem',false)}
+          </div>
+        </div>
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500;display:block;margin-bottom:6px">Formato do conteúdo</label>
+          ${temAmbientes ? `
+            <div style="display:flex;gap:8px" id="pdf-formato">
+              ${pillBtn('pdf-fmt-padrao','Padrão','Lista única de produtos','formato','padrao',true)}
+              ${pillBtn('pdf-fmt-amb','Ambientado','Agrupado por ambiente com subtotal','formato','ambientado',false)}
+            </div>
+            <div style="font-size:10.5px;color:var(--muted);margin-top:6px">${ambientes.length} ambiente(s) configurado(s)</div>
+          ` : `
+            <div style="padding:10px 12px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;font-size:11.5px;color:var(--muted-2);line-height:1.4">Lista única de produtos (este documento não tem ambientes configurados).</div>
+          `}
+        </div>
       </div>
-      <div style="font-size:11px;color:var(--muted);margin-top:14px;text-align:center">${ambientes.length} ambiente(s) configurado(s) neste orçamento</div>
     `,
-    footer: `<button class="btn btn-secondary" id="pdf-modo-cancel">Cancelar</button>`
+    footer: `
+      <button class="btn btn-secondary" id="pdf-modo-cancel">Cancelar</button>
+      <button class="btn btn-primary" id="pdf-modo-ok">Gerar PDF</button>
+    `
   });
-  m.root.querySelector('#pdf-modo-padrao').onclick = () => { m.close(); callback('padrao'); };
-  m.root.querySelector('#pdf-modo-amb').onclick    = () => { m.close(); callback('ambientado'); };
+
+  function bindToggle(groupId, attr) {
+    const group = m.root.querySelector('#'+groupId);
+    if (!group) return;
+    group.querySelectorAll('.pdf-pill').forEach(btn => {
+      btn.onclick = () => {
+        sel[attr] = btn.dataset[attr];
+        group.querySelectorAll('.pdf-pill').forEach(b => {
+          const ativo = b === btn;
+          b.classList.toggle('is-active', ativo);
+          b.style.background = ativo ? 'var(--ink)' : 'var(--surface)';
+          b.style.color = ativo ? 'var(--lumentech-white)' : 'var(--ink-2)';
+          b.style.borderColor = ativo ? 'var(--ink)' : 'var(--border)';
+        });
+      };
+    });
+  }
+  bindToggle('pdf-apresentacao','apresentacao');
+  bindToggle('pdf-formato','formato');
+
   m.root.querySelector('#pdf-modo-cancel').onclick = () => m.close();
+  m.root.querySelector('#pdf-modo-ok').onclick = () => {
+    m.close();
+    callback(sel.formato, { semApresentacao: sel.apresentacao === 'sem' });
+  };
 }
 
 function gerarPDFDocumento(o, opts) {
@@ -11204,12 +11618,13 @@ function gerarPDFDocumento(o, opts) {
 
   function _linhaItemHtml(it) {
     const bruto = (it.qtd||0) * (it.valor||0);
-    const idProd = it.produtoId ? _idLimpo(it.produtoId) : '';
+    const idProd = it.produtoId ? _idLimpo(it.produtoId) : (it.sku || '');
     return `
       <tr>
         <td class="c-cod">${escapeHtml(it.sku || (it.manual ? 'MAN' : '—'))}</td>
         <td class="c-desc">
-          <div class="prod-nome">${escapeHtml(it.nome)}${idProd ? ` <span class="prod-id">· ${escapeHtml(idProd)}</span>` : ''}</div>
+          ${idProd ? `<div class="prod-id-eyebrow">${escapeHtml(idProd)}</div>` : ''}
+          <div class="prod-nome">${escapeHtml(it.nome)}</div>
           ${it.descricao ? `<div class="prod-sub">${escapeHtml(it.descricao)}</div>` : ''}
         </td>
         <td class="c-qtd">${fmtInt(it.qtd)} <span class="unit">${escapeHtml(it.unidade || 'un')}</span></td>
@@ -11307,18 +11722,28 @@ function gerarPDFDocumento(o, opts) {
   }
   .pdf-page:last-of-type { page-break-after: auto; }
 
+  /* Modo "Sem apresentação" — esconde as 3 paginas institucionais.
+     Aplicado via body.pdf-skip-apresentacao no momento da geração. */
+  body.pdf-skip-apresentacao .pdf-cover,
+  body.pdf-skip-apresentacao .pdf-intro,
+  body.pdf-skip-apresentacao .pdf-sobre {
+    display: none !important;
+  }
+
   /* ═══════════════════════════════════════════
-     PÁGINA 1 — CAPA (fundo branco · elementos pretos)
+     PÁGINA 1 — CAPA (fundo preto · elementos brancos · brandbook §03)
      ═══════════════════════════════════════════ */
   .pdf-cover {
-    background: #ffffff;
-    color: #000000;
+    background: #000000;
+    color: #ffffff;
     padding: 0;
     position: relative;
     overflow: hidden;
     min-height: 297mm;
     height: 297mm;
     display: block;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
   .cover-circles {
     position: absolute;
@@ -11328,7 +11753,7 @@ function gerarPDFDocumento(o, opts) {
   .cv-circle {
     position: absolute;
     border-radius: 50%;
-    border: 1px solid rgba(0,0,0,.25);
+    border: 1px solid rgba(255,255,255,.35);
   }
   .cv-c1 { width: 220px; height: 220px; top: 30mm; right: 24mm; }
   .cv-c2 { width: 280px; height: 280px; top: 18mm; right: -50mm; }
@@ -11360,7 +11785,7 @@ function gerarPDFDocumento(o, opts) {
     font-family: 'Unbounded', sans-serif;
     font-weight: 300;
     font-size: 36px;
-    color: #000000;
+    color: #ffffff;
     letter-spacing: 0.14em;
     text-transform: uppercase;
     line-height: 1;
@@ -11372,7 +11797,7 @@ function gerarPDFDocumento(o, opts) {
     font-family: 'Unbounded', sans-serif;
     font-weight: 300;
     font-size: 12px;
-    color: #000000;
+    color: #ffffff;
     position: relative;
     top: 0.05em;
     margin-left: -0.15em;
@@ -11380,13 +11805,13 @@ function gerarPDFDocumento(o, opts) {
   .cover-line {
     width: 80mm;
     height: 1px;
-    background: #000000;
+    background: #ffffff;
     margin-bottom: 22px;
   }
   .cover-subtitle {
     font-family: 'Unbounded', sans-serif;
     font-size: 22px;
-    color: rgba(0,0,0,.7);
+    color: rgba(255,255,255,.78);
     font-weight: 300;
     letter-spacing: -0.02em;
   }
@@ -11394,7 +11819,7 @@ function gerarPDFDocumento(o, opts) {
     padding: 0 22mm 22mm;
     display: flex;
     justify-content: space-between;
-    color: rgba(0,0,0,.5);
+    color: rgba(255,255,255,.55);
     font-family: 'Unbounded', sans-serif;
     font-size: 10px;
     letter-spacing: .15em;
@@ -11850,6 +12275,17 @@ function gerarPDFDocumento(o, opts) {
     width: 60px;
   }
   .c-desc { font-size: 9.5px; }
+  /* Eyebrow com o ID do produto acima da descrição — brandbook §07 (label micro UPPERCASE, tracking 0.15em, muted). */
+  .prod-id-eyebrow {
+    font-size: 8px;
+    font-weight: 500;
+    color: #808080;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    margin-bottom: 3px;
+    font-family: 'Unbounded', sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
   .prod-nome { font-weight: 500; color: #000000; font-size: 9.5px; }
   .prod-nome .prod-id { font-weight: 300; color: #808080; font-size: 8.5px; font-family: 'Unbounded', sans-serif; font-variant-numeric: tabular-nums; letter-spacing: 0.04em; }
   .prod-sub {
@@ -12451,7 +12887,7 @@ function gerarPDFDocumento(o, opts) {
   }
 </style>
 </head>
-<body>
+<body class="${opts.semApresentacao ? 'pdf-skip-apresentacao' : ''}">
 
 <div class="toolbar no-print">
   <button class="accent" onclick="window.print()">📄 Imprimir / Salvar PDF</button>
@@ -17500,13 +17936,99 @@ function renderProdLista(parent) {
   renderListaConteudo();
 }
 
+// Abre popover de configuração de colunas (3-dots no cabeçalho da tabela de produtos)
+function _abrirConfigColunasProd(anchor) {
+  // Remove qualquer popover anterior
+  document.querySelectorAll('.prod-col-cfg-pop').forEach(p => p.remove());
+  const cfg = _prodGetColsVisiveis();
+  const rect = anchor.getBoundingClientRect();
+  const pop = el(`
+    <div class="prod-col-cfg-pop" style="position:fixed;top:${rect.bottom+6}px;left:${Math.max(8, rect.right-220)}px;width:220px;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.12);z-index:5000;padding:10px">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:500;margin:0 4px 8px">Colunas visíveis</div>
+      ${PROD_COLUNAS.map(c => `
+        <label style="display:flex;align-items:center;gap:8px;padding:6px 4px;cursor:pointer;border-radius:4px" class="prod-col-row" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+          <input type="checkbox" data-col="${c.id}" ${cfg[c.id]?'checked':''} style="cursor:pointer">
+          <span style="font-size:12.5px;color:var(--ink-2)">${escapeHtml(c.label)}</span>
+        </label>
+      `).join('')}
+      <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between;gap:6px">
+        <button id="prod-col-reset" style="background:transparent;border:0;cursor:pointer;font-size:11px;color:var(--info);padding:4px 6px">Padrão</button>
+        <button id="prod-col-fechar" style="background:var(--ink);color:#fff;border:0;border-radius:5px;padding:5px 12px;font-size:11.5px;cursor:pointer;font-weight:500">Aplicar</button>
+      </div>
+    </div>
+  `);
+  document.body.appendChild(pop);
+
+  function aplicar() {
+    const novoCfg = {};
+    pop.querySelectorAll('input[type="checkbox"]').forEach(chk => { novoCfg[chk.dataset.col] = chk.checked; });
+    _prodSetColsVisiveis(novoCfg);
+    pop.remove();
+    if (typeof renderPage === 'function') renderPage(currentPage);
+  }
+
+  pop.querySelector('#prod-col-fechar').onclick = aplicar;
+  pop.querySelector('#prod-col-reset').onclick = () => {
+    const padrao = PROD_COLUNAS.reduce((acc, c) => { acc[c.id] = c.padrao; return acc; }, {});
+    _prodSetColsVisiveis(padrao);
+    pop.remove();
+    if (typeof renderPage === 'function') renderPage(currentPage);
+  };
+
+  // Fecha ao clicar fora
+  setTimeout(() => {
+    function onDocClick(e) {
+      if (!pop.contains(e.target) && e.target !== anchor) {
+        aplicar();
+        document.removeEventListener('click', onDocClick);
+      }
+    }
+    document.addEventListener('click', onDocClick);
+  }, 50);
+}
+
+// Configuração de colunas da tabela de produtos — IDs, labels e padrão de visibilidade
+const PROD_COLUNAS = [
+  { id: 'imagem',    label: 'Imagem',    th: '<th style="width:50px"></th>', padrao: true  },
+  { id: 'id',        label: 'ID',        th: '<th>ID</th>',                  padrao: true  },
+  { id: 'produto',   label: 'Produto',   th: '<th>Produto</th>',             padrao: true  },
+  { id: 'tipo',      label: 'Tipo',      th: '<th>Tipo</th>',                padrao: true  },
+  { id: 'categoria', label: 'Categoria', th: '<th>Categoria</th>',           padrao: false },
+  { id: 'custo',     label: 'Custo',     th: '<th>Custo</th>',               padrao: false },
+  { id: 'venda',     label: 'Venda',     th: '<th>Venda</th>',               padrao: true  },
+  { id: 'margem',    label: 'Margem',    th: '<th>Margem</th>',              padrao: false },
+  { id: 'estoque',   label: 'Estoque',   th: '<th>Estoque</th>',             padrao: true  },
+];
+
+// Estado das colunas visíveis (persistido em localStorage)
+function _prodGetColsVisiveis() {
+  try {
+    const raw = localStorage.getItem('lumentech_prod_colunas');
+    if (raw) return JSON.parse(raw);
+  } catch(_){}
+  return PROD_COLUNAS.reduce((acc, c) => { acc[c.id] = c.padrao; return acc; }, {});
+}
+function _prodSetColsVisiveis(cfg) {
+  try { localStorage.setItem('lumentech_prod_colunas', JSON.stringify(cfg)); } catch(_){}
+}
+
 function renderProdTabela(list) {
+  const cols = _prodGetColsVisiveis();
+  const visivel = (id) => !!cols[id];
+
   return el(`
     <div class="card">
       <div class="card-body flush">
         <div class="table-wrap">
           <table class="tbl">
-            <thead><tr><th style="width:50px"></th><th>ID</th><th>Produto</th><th>Tipo</th><th>Categoria</th><th>Custo</th><th>Venda</th><th>Margem</th><th>Estoque</th><th></th></tr></thead>
+            <thead><tr>
+              ${PROD_COLUNAS.filter(c => visivel(c.id)).map(c => c.th).join('')}
+              <th style="width:90px;text-align:right;position:relative">
+                <button id="prod-col-cfg-btn" title="Configurar colunas" style="background:transparent;border:0;cursor:pointer;padding:4px 6px;border-radius:4px;color:var(--ink-2);display:inline-flex;align-items:center;justify-content:center" onclick="event.stopPropagation();_abrirConfigColunasProd(this)">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+                </button>
+              </th>
+            </tr></thead>
             <tbody>
               ${list.map(p => {
                 const cat = DB.categoriasProduto.find(c => c.id === p.categoriaId);
@@ -17518,26 +18040,27 @@ function renderProdTabela(list) {
                 const estoqueMin = Number(p.estoqueMinimo||0);
                 const estBaixo = p.controlaEstoque && estoqueAtual > 0 && estoqueAtual <= estoqueMin;
                 const estZero = p.controlaEstoque && estoqueAtual === 0;
+
+                const tdMap = {
+                  imagem: `<td onclick="event.stopPropagation()">${p.imagens && p.imagens[0]
+                    ? `<div style="width:36px;height:36px;border-radius:6px;overflow:hidden;background:var(--surface-2)"><img src="${p.imagens[0]}" style="width:100%;height:100%;object-fit:cover"></div>`
+                    : `<div style="width:36px;height:36px;border-radius:6px;background:var(--surface-2);display:grid;place-items:center;color:var(--muted-2)">${ICONS.box}</div>`}</td>`,
+                  id: `<td class="num num-strong" style="font-size:11px;font-family:var(--mono)">${escapeHtml(_idLimpo(p.id||p.sku||'—'))}</td>`,
+                  produto: `<td>
+                    <strong>${escapeHtml(p.nome)}</strong>
+                    ${p.descricaoCurta ? `<div style="font-size:11px;color:var(--muted);margin-top:1px">${escapeHtml(p.descricaoCurta)}</div>` : ''}
+                  </td>`,
+                  tipo: `<td><span class="pill" style="font-size:9.5px">${escapeHtml(tipo?.label||p.tipo||'—')}</span></td>`,
+                  categoria: `<td style="font-size:11.5px">${escapeHtml(cat?.nome||'—')}</td>`,
+                  custo: `<td class="num" style="font-size:11.5px;color:var(--muted)">${custo>0?brl(custo):'—'}</td>`,
+                  venda: `<td class="num num-strong">${venda>0?brl(venda):'—'}</td>`,
+                  margem: `<td class="num" style="color:${margem>=30?'var(--success)':margem>=15?'var(--warning)':'var(--danger)'};font-weight:500;font-size:11.5px">${custo>0?margem.toFixed(1)+'%':'—'}</td>`,
+                  estoque: `<td class="num">${p.controlaEstoque ? `<span style="color:${estZero?'var(--danger)':estBaixo?'var(--warning)':'inherit'};font-weight:${estBaixo||estZero?'600':'400'}">${fmtInt(estoqueAtual)} ${escapeHtml(p.unidade||'un')}</span>` : '<span style="color:var(--muted-2)">—</span>'}</td>`,
+                };
+
                 return `
                   <tr style="cursor:pointer" onclick="abrirProdutoPage('${p.id}')">
-                    <td onclick="event.stopPropagation()">
-                      ${p.imagens && p.imagens[0]
-                        ? `<div style="width:36px;height:36px;border-radius:6px;overflow:hidden;background:var(--surface-2)"><img src="${p.imagens[0]}" style="width:100%;height:100%;object-fit:cover"></div>`
-                        : `<div style="width:36px;height:36px;border-radius:6px;background:var(--surface-2);display:grid;place-items:center;color:var(--muted-2)">${ICONS.box}</div>`}
-                    </td>
-                    <td class="num num-strong" style="font-size:11px;font-family:var(--mono)">${escapeHtml(_idLimpo(p.id||p.sku||'—'))}</td>
-                    <td>
-                      <strong>${escapeHtml(p.nome)}</strong>
-                      ${p.descricaoCurta ? `<div style="font-size:11px;color:var(--muted);margin-top:1px">${escapeHtml(p.descricaoCurta)}</div>` : ''}
-                    </td>
-                    <td><span class="pill" style="font-size:9.5px">${escapeHtml(tipo?.label||p.tipo||'—')}</span></td>
-                    <td style="font-size:11.5px">${escapeHtml(cat?.nome||'—')}</td>
-                    <td class="num" style="font-size:11.5px;color:var(--muted)">${custo>0?brl(custo):'—'}</td>
-                    <td class="num num-strong">${venda>0?brl(venda):'—'}</td>
-                    <td class="num" style="color:${margem>=30?'var(--success)':margem>=15?'var(--warning)':'var(--danger)'};font-weight:500;font-size:11.5px">${custo>0?margem.toFixed(1)+'%':'—'}</td>
-                    <td class="num">
-                      ${p.controlaEstoque ? `<span style="color:${estZero?'var(--danger)':estBaixo?'var(--warning)':'inherit'};font-weight:${estBaixo||estZero?'600':'400'}">${fmtInt(estoqueAtual)} ${escapeHtml(p.unidade||'un')}</span>` : '<span style="color:var(--muted-2)">—</span>'}
-                    </td>
+                    ${PROD_COLUNAS.filter(c => visivel(c.id)).map(c => tdMap[c.id]).join('')}
                     <td onclick="event.stopPropagation()">
                       <div class="row-actions">
                         <button class="row-action-btn" title="Editar" onclick="abrirProdutoPage('${p.id}')">${ICONS.edit}</button>
@@ -17904,8 +18427,8 @@ function renderProdAbaGeral(parent) {
             <div class="fp-field">
               <label>Unidade de medida</label>
               <select id="pf-unidade">
-                ${['un','pç','kg','g','m','m²','m³','cm','mm','l','ml','cx','pct','par','dz','t'].map(u =>
-                  `<option value="${u}" ${f.unidade===u?'selected':''}>${u}</option>`
+                ${['UN','PÇ','KG','G','M','M²','M³','CM','MM','L','ML','CX','PCT','PAR','DZ','T'].map(u =>
+                  `<option value="${u}" ${(f.unidade||'').toUpperCase()===u?'selected':''}>${u}</option>`
                 ).join('')}
               </select>
             </div>
@@ -18241,7 +18764,9 @@ function renderProdAbaComposicao(parent) {
 
   const custoTotal = f.componentes.reduce((s,c) => {
     const prod = DB.produtos.find(x => x.id === c.produtoId);
-    return s + Number(prod?.precoCompra||prod?.custoMedio||0) * Number(c.qtd||0);
+    const custoOriginal = Number(prod?.precoCompra||prod?.custoMedio||0);
+    const valor = c.valorOverride != null ? Number(c.valorOverride) : custoOriginal;
+    return s + valor * Number(c.qtd||0);
   }, 0);
 
   const isKit = f.tipo === 'kit';
@@ -18276,19 +18801,27 @@ function renderProdAbaComposicao(parent) {
       ` : `
         <div class="table-wrap">
           <table class="tbl">
-            <thead><tr><th>ID</th><th>${isKit?'Produto':'Componente'}</th><th>Qtd</th><th>Unidade</th><th>Custo un.</th><th>Subtotal</th><th></th></tr></thead>
+            <thead><tr><th>ID</th><th>${isKit?'Produto':'Componente'}</th><th>Tipo</th><th class="num">Qtd</th><th>Unidade</th><th class="num">Valor un.</th><th class="num">Subtotal</th><th></th></tr></thead>
             <tbody>
               ${f.componentes.map((c, idx) => {
                 const prod = DB.produtos.find(x => x.id === c.produtoId);
-                const custoUn = Number(prod?.precoCompra||prod?.custoMedio||0);
+                const tipoMeta = PROD_TIPOS.find(t => t.id === (prod?.tipo||'simples'));
+                const corTipo = prod?.tipo === 'materia_prima' ? '#BA7517' : prod?.tipo === 'acabado' ? '#1E4F8F' : prod?.tipo === 'simples' ? '#1D9E75' : '#64748B';
+                const custoOriginal = Number(prod?.precoCompra||prod?.custoMedio||0);
+                const custoUn = c.valorOverride != null ? Number(c.valorOverride) : custoOriginal;
                 const sub = custoUn * Number(c.qtd||0);
+                const overridden = c.valorOverride != null;
                 return `
                   <tr>
                     <td class="num num-strong" style="font-size:11px;font-family:var(--mono)">${escapeHtml(_idLimpo(prod?.id||'?'))}</td>
                     <td><strong>${escapeHtml(prod?.nome||'?')}</strong></td>
-                    <td><input type="number" step="0.01" value="${c.qtd||1}" data-idx="${idx}" class="comp-qtd" style="width:80px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;font-family:var(--mono);font-size:12.5px"></td>
+                    <td><span style="font-size:9.5px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;padding:1px 7px;border:1px solid ${corTipo}55;border-radius:3px;background:${corTipo}10;color:${corTipo}">${escapeHtml(tipoMeta?.label||prod?.tipo||'—')}</span></td>
+                    <td class="num"><input type="number" step="0.01" min="0" value="${c.qtd||1}" data-idx="${idx}" class="comp-qtd" style="width:80px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;font-family:var(--mono);font-size:12.5px;text-align:right"></td>
                     <td style="font-size:11.5px;color:var(--muted)">${escapeHtml(prod?.unidade||'un')}</td>
-                    <td class="num">${brl(custoUn)}</td>
+                    <td class="num">
+                      <input type="number" step="0.01" min="0" value="${custoUn.toFixed(2)}" data-idx="${idx}" class="comp-valor" style="width:90px;padding:5px 8px;border:1px solid ${overridden?'#BA7517':'var(--border)'};border-radius:5px;font-family:var(--mono);font-size:12.5px;text-align:right${overridden?';color:#BA7517;font-weight:500':''}" title="${overridden?'Valor sobrescrito · clique no botão pra restaurar do cadastro':'Valor do cadastro do produto'}">
+                      ${overridden ? `<button type="button" data-idx="${idx}" class="comp-reset-valor" title="Restaurar valor do cadastro" style="background:transparent;border:0;cursor:pointer;color:var(--muted);padding:2px 4px;margin-left:2px;font-size:10px">↺</button>` : ''}
+                    </td>
                     <td class="num num-strong">${brl(sub)}</td>
                     <td><button class="row-action-btn danger" onclick="removerComponente(${idx})">${ICONS.trash}</button></td>
                   </tr>
@@ -18297,7 +18830,7 @@ function renderProdAbaComposicao(parent) {
             </tbody>
             <tfoot>
               <tr style="background:var(--surface-2)">
-                <td colspan="5" style="text-align:right;font-weight:500;padding-right:14px">${isKit?'Soma dos produtos do kit:':'Custo total da composição (BOM):'}</td>
+                <td colspan="6" style="text-align:right;font-weight:500;padding-right:14px">${isKit?'Soma total dos produtos do kit:':'Custo total da composição (BOM):'}</td>
                 <td class="num num-strong" style="font-family:var(--serif);font-size:16px;color:var(--ink)">${brl(custoTotal)}</td>
                 <td></td>
               </tr>
@@ -18316,18 +18849,63 @@ function renderProdAbaComposicao(parent) {
       renderProdAbaContent();
     };
   });
+  // Override do valor unitário do componente
+  parent.querySelectorAll('.comp-valor').forEach(inp => {
+    inp.onchange = () => {
+      const idx = +inp.dataset.idx;
+      const novo = +inp.value || 0;
+      const prod = DB.produtos.find(x => x.id === f.componentes[idx].produtoId);
+      const custoOriginal = Number(prod?.precoCompra||prod?.custoMedio||0);
+      // Se for igual ao valor original, remove o override
+      if (Math.abs(novo - custoOriginal) < 0.005) {
+        delete f.componentes[idx].valorOverride;
+      } else {
+        f.componentes[idx].valorOverride = novo;
+      }
+      renderProdAbaContent();
+    };
+  });
+  // Reset do valor pro cadastro original
+  parent.querySelectorAll('.comp-reset-valor').forEach(btn => {
+    btn.onclick = () => {
+      const idx = +btn.dataset.idx;
+      delete f.componentes[idx].valorOverride;
+      renderProdAbaContent();
+    };
+  });
 }
 
 function adicionarComponente() {
   capturarDadosFormProd();
-  // Modal de seleção de produto
+  // Estado do filtro por tipo no modal — persiste entre aberturas
+  if (!window._kitFiltroTipo) window._kitFiltroTipo = 'todos';
+  const isKit = _prodForm.tipo === 'kit';
+  // Pra composição (BOM de fabricado), o padrão é matéria-prima. Pra kit, todos os tipos.
+  const tiposPermitidos = isKit
+    ? ['materia_prima','simples','acabado']
+    : ['materia_prima'];
+
+  const modeloFiltros = [{ id:'todos', label:'Todos' }]
+    .concat(tiposPermitidos.map(t => {
+      const meta = PROD_TIPOS.find(x => x.id === t);
+      return { id: t, label: meta?.label || t };
+    }));
+
   const m = openModal({
-    title: 'Adicionar componente',
+    title: isKit ? 'Adicionar produto ao kit' : 'Adicionar componente',
+    size: 'md',
     body: `
-      <div class="field"><label>Buscar produto</label>
-        <input type="text" id="cp-busca" placeholder="Digite nome ou SKU..." autofocus>
+      <div class="field" style="margin-bottom:10px">
+        <label>Buscar produto</label>
+        <input type="text" id="cp-busca" placeholder="Digite nome, ID, SKU ou EAN..." autocomplete="off" autofocus>
       </div>
-      <div id="cp-lista" style="max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:7px;background:var(--surface-2)"></div>
+      <div id="cp-tipos" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px"></div>
+      <div id="cp-lista" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:7px;background:var(--surface-2)"></div>
+      <div style="margin-top:8px;font-size:10.5px;color:var(--muted);line-height:1.5">
+        ${isKit
+          ? 'Kits podem conter <strong>matéria-prima, produtos simples ou fabricados</strong>. O custo é a soma; o preço de venda do kit é editado em "Geral".'
+          : 'Composições de produtos fabricados aceitam apenas <strong>matéria-prima</strong>.'}
+      </div>
     `,
     footer: `<button class="btn btn-secondary" id="cp-cancel">Cancelar</button>`
   });
@@ -18335,29 +18913,74 @@ function adicionarComponente() {
 
   const listEl = m.root.querySelector('#cp-lista');
   const busca = m.root.querySelector('#cp-busca');
+  const tiposEl = m.root.querySelector('#cp-tipos');
 
-  function render() {
+  function renderTipos() {
+    tiposEl.innerHTML = modeloFiltros.map(t => {
+      const ativo = window._kitFiltroTipo === t.id;
+      return `<button type="button" data-t="${t.id}" style="padding:5px 12px;border:1px solid ${ativo?'var(--ink)':'var(--border)'};border-radius:5px;background:${ativo?'var(--ink)':'var(--surface)'};color:${ativo?'#fff':'var(--ink-2)'};font-size:11px;cursor:pointer;font-weight:500;letter-spacing:.02em">${escapeHtml(t.label)}</button>`;
+    }).join('');
+    tiposEl.querySelectorAll('button').forEach(b => {
+      b.onclick = () => { window._kitFiltroTipo = b.dataset.t; renderTipos(); renderLista(); };
+    });
+  }
+
+  function renderLista() {
     const q = busca.value.toLowerCase().trim();
-    // Não permite adicionar o próprio produto
-    const candidatos = DB.produtos.filter(p =>
-      p.id !== _prodForm.id &&
-      (!q || p.nome.toLowerCase().includes(q) || (p.sku||'').toLowerCase().includes(q))
-    ).slice(0, 50);
+    const qDigits = q.replace(/\D/g,'');
+    const filtroTipo = window._kitFiltroTipo;
+    const candidatos = DB.produtos.filter(p => {
+      if (p.id === _prodForm.id) return false;
+      if (p.ativo === false) return false;
+      const tipo = p.tipo || 'simples';
+      // Restringe pelos tipos permitidos
+      if (!tiposPermitidos.includes(tipo)) return false;
+      // Filtro de chip
+      if (filtroTipo !== 'todos' && tipo !== filtroTipo) return false;
+      // Busca
+      if (q) {
+        const hit =
+          (p.nome||'').toLowerCase().includes(q) ||
+          (p.sku||'').toLowerCase().includes(q) ||
+          (p.id||'').toLowerCase().includes(q) ||
+          (qDigits && (p.id||'').replace(/\D/g,'').includes(qDigits)) ||
+          (p.codigoBarras||'').includes(qDigits);
+        if (!hit) return false;
+      }
+      return true;
+    }).slice(0, 50);
+
     listEl.innerHTML = candidatos.length === 0
-      ? '<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px">Nenhum produto encontrado</div>'
-      : candidatos.map(p => `
-          <div data-id="${p.id}" class="cp-item" style="padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
-            <div style="width:30px;height:30px;background:var(--surface);border-radius:5px;display:grid;place-items:center;color:var(--muted-2);flex-shrink:0">${ICONS.box}</div>
-            <div style="flex:1">
-              <div style="font-size:12.5px;font-weight:500">${escapeHtml(p.nome)}</div>
-              <div style="font-size:10.5px;color:var(--muted)">${escapeHtml(p.sku||p.id)} · ${brl(p.precoCompra||p.custoMedio||0)} / ${escapeHtml(p.unidade||'un')}</div>
+      ? '<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px;line-height:1.5">Nenhum produto encontrado<br><span style="font-size:10.5px">Cadastre em <strong>Estoque → Produtos</strong> com o tipo desejado</span></div>'
+      : candidatos.map(p => {
+          const tipoMeta = PROD_TIPOS.find(t => t.id === (p.tipo||'simples'));
+          const corTipo = p.tipo === 'materia_prima' ? '#BA7517' : p.tipo === 'acabado' ? '#1E4F8F' : p.tipo === 'simples' ? '#1D9E75' : '#64748B';
+          const disp = Number(p.estoqueAtual||0);
+          const corEst = disp <= 0 ? '#B0241F' : disp < 5 ? '#9A6A0A' : '#1D9E75';
+          const preco = Number(p.precoCompra||p.custoMedio||0);
+          const jaAdd = _prodForm.componentes.some(c => c.produtoId === p.id);
+          return `
+            <div data-id="${p.id}" class="cp-item" style="padding:10px 14px;cursor:${jaAdd?'not-allowed':'pointer'};border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;opacity:${jaAdd?0.5:1}">
+              <div style="width:30px;height:30px;background:var(--surface);border-radius:5px;display:grid;place-items:center;color:var(--muted-2);flex-shrink:0">${ICONS.box}</div>
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:center;gap:6px">
+                  <div style="font-size:12.5px;font-weight:500">${escapeHtml(p.nome)}</div>
+                  <span style="font-size:9px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;padding:1px 6px;border:1px solid ${corTipo}55;border-radius:3px;background:${corTipo}10;color:${corTipo}">${escapeHtml(tipoMeta?.label||p.tipo||'—')}</span>
+                  ${jaAdd ? '<span style="font-size:9px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase">já adicionado</span>' : ''}
+                </div>
+                <div style="font-size:10.5px;color:var(--muted);margin-top:2px;font-family:var(--mono)">ID ${escapeHtml(_idLimpo(p.id))}${p.sku?` · SKU ${escapeHtml(p.sku)}`:''}</div>
+              </div>
+              <div style="text-align:right;flex-shrink:0">
+                <div style="font-family:var(--mono);font-size:11.5px;font-weight:500">${brl(preco)}</div>
+                <div style="font-size:10px;color:${corEst};margin-top:1px">${disp>0?`${fmtInt(disp)} ${escapeHtml(p.unidade||'un')}`:'Sem estoque'}</div>
+              </div>
             </div>
-          </div>
-        `).join('');
+          `;
+        }).join('');
+
     listEl.querySelectorAll('.cp-item').forEach(item => {
       item.onclick = () => {
         const id = item.dataset.id;
-        // Evita duplicatas
         if (_prodForm.componentes.some(c => c.produtoId === id)) {
           toast('Componente já adicionado', 'danger');
           return;
@@ -18369,8 +18992,10 @@ function adicionarComponente() {
       };
     });
   }
-  busca.oninput = render;
-  render();
+
+  renderTipos();
+  renderLista();
+  busca.oninput = renderLista;
 }
 
 function removerComponente(idx) {
@@ -19161,7 +19786,6 @@ function renderFornSubpage() {
   const content = $('#forn-content');
   if (!content) return;
   _swapComFade(content, (wrap) => {
-    wrap.appendChild(_fornStatusTabsElement());
     const renderers = {
       dashboard: renderFornDashboard,
       lista: renderFornLista,
@@ -19169,6 +19793,11 @@ function renderFornSubpage() {
       negociacoes: renderFornNegociacoes,
     };
     (renderers[_fornSubpage] || renderers.lista)(wrap);
+    // App bar entra logo APÓS o título da página (page-head do renderer)
+    const head = wrap.querySelector('.page-head');
+    const tabs = _fornStatusTabsElement();
+    if (head && head.parentNode) head.parentNode.insertBefore(tabs, head.nextSibling);
+    else wrap.insertBefore(tabs, wrap.firstChild);
   });
 }
 
@@ -21008,7 +21637,7 @@ function temPermissao(modulo, acao) {
 // MÓDULO ORDEM DE SERVIÇO — Gestão técnica operacional
 // =====================================================
 
-let _osSubpage = 'lista';
+let _osSubpage = 'kanban';
 let _osFiltros = { busca:'', status:'', tipo:'', tecnico:'', periodo:'' };
 let _osForm = null;
 let _osAbaAtiva = 'principal';
@@ -21053,10 +21682,12 @@ function renderOSSubmenu() {}
 
 function _osStatusTabsElement() {
   const counts = {
+    kanban:   DB.osServicos.filter(o => o.status !== 'finalizada' && o.status !== 'cancelada').length,
     lista:    DB.osServicos.length,
     agenda:   DB.osServicos.filter(o => o.status !== 'finalizada' && o.status !== 'cancelada' && o.dataAgendada).length,
   };
   const tabsDef = [
+    { id: 'kanban',    label: 'Kanban',            count: counts.kanban,   icon: 'box' },
     { id: 'lista',     label: 'Ordens de serviço', count: counts.lista,    icon: 'clipboard' },
     { id: 'agenda',    label: 'Agenda',            count: counts.agenda,   icon: 'calendar' },
     { id: 'rota',      label: 'Mapa & rotas',      count: null,            icon: 'map' },
@@ -21084,8 +21715,8 @@ function renderOSSubpage() {
   const content = $('#os-content');
   if (!content) return;
   _swapComFade(content, (wrap) => {
-    wrap.appendChild(_osStatusTabsElement());
     const renderers = {
+      kanban: renderOSKanban,
       dashboard: renderOSDashboard,
       lista: renderOSLista,
       agenda: renderOSAgenda,
@@ -21093,7 +21724,12 @@ function renderOSSubpage() {
       veiculos: renderOSVeiculos,
       config: renderOSConfig,
     };
-    (renderers[_osSubpage] || renderers.lista)(wrap);
+    (renderers[_osSubpage] || renderers.kanban)(wrap);
+    // App bar entra logo APÓS o título da página (page-head do renderer)
+    const head = wrap.querySelector('.page-head');
+    const tabs = _osStatusTabsElement();
+    if (head && head.parentNode) head.parentNode.insertBefore(tabs, head.nextSibling);
+    else wrap.insertBefore(tabs, wrap.firstChild);
   });
 }
 
@@ -21340,6 +21976,152 @@ function deletarOS(id) {
       renderOSSubpage();
     }
   });
+}
+
+// ============ KANBAN ============
+function renderOSKanban(parent) {
+  pageHead(parent, 'Ordens de <em>serviço</em>', `${DB.osServicos.length} OS · arrastando o card pra outra coluna troca o status`,
+    `<button class="btn btn-primary btn-sm" onclick="abrirOSPage()" title="Nova OS avulsa" aria-label="Nova OS avulsa" style="padding:6px 10px;display:inline-flex;align-items:center;justify-content:center;line-height:1">${ICONS.plus}</button>`);
+
+  // Filtros: busca, técnico, tipo
+  if (!window._osKanbanFiltros) window._osKanbanFiltros = { busca:'', tecnico:'', tipo:'' };
+  const F = window._osKanbanFiltros;
+  const tecnicos = DB.usuarios.filter(u => u.ativo !== false);
+  const tipos = (DB.configOS?.tiposServico || []);
+
+  parent.appendChild(el(`
+    <div class="filters-bar filters-bar-compact" style="margin-bottom:14px">
+      <div class="filters-search-wrap">
+        <span class="filters-search-icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span>
+        <input type="text" class="filters-search" id="osk-busca" placeholder="Buscar por Nº OS, cliente, ID do cliente..." value="${escapeHtml(F.busca)}">
+      </div>
+      <select class="filter-select" id="osk-tipo">
+        <option value="">Todos os tipos</option>
+        ${tipos.map(t => `<option value="${escapeHtml(t)}" ${F.tipo===t?'selected':''}>${escapeHtml(t)}</option>`).join('')}
+      </select>
+      <select class="filter-select" id="osk-tec">
+        <option value="">Todos os técnicos</option>
+        ${tecnicos.map(u => `<option value="${u.id}" ${F.tecnico===u.id?'selected':''}>${escapeHtml(_nomeCurto(u.nome||u.email))}</option>`).join('')}
+      </select>
+    </div>
+    <div id="os-kanban-wrap"></div>
+  `));
+
+  function rerender() {
+    const q = (F.busca||'').toLowerCase().trim();
+    const qDigits = q.replace(/\D/g,'');
+    const filtradas = DB.osServicos.filter(o => {
+      if (F.tipo && o.tipo !== F.tipo) return false;
+      if (F.tecnico && o.tecnicoId !== F.tecnico) return false;
+      if (q) {
+        const idCli = (o.clienteId||'').replace(/\D/g,'');
+        const hit =
+          (o.id||'').toLowerCase().includes(q) ||
+          (o.cliente||'').toLowerCase().includes(q) ||
+          (o.clienteId||'').toLowerCase().includes(q) ||
+          (qDigits && idCli.includes(qDigits));
+        if (!hit) return false;
+      }
+      return true;
+    });
+
+    const wrap = parent.querySelector('#os-kanban-wrap');
+    wrap.innerHTML = '';
+    // Layout pipeline horizontal scrollável — uma coluna por status
+    const colunas = OS_STATUS.map(st => {
+      const lista = filtradas.filter(o => o.status === st.id);
+      return { ...st, lista };
+    });
+
+    wrap.appendChild(el(`
+      <div class="card">
+        <div class="card-body" style="padding:14px">
+          <div class="logistica-pipeline" style="grid-template-columns:repeat(${colunas.length},minmax(220px,1fr))">
+            ${colunas.map(col => `
+              <div class="logistica-col" data-status="${col.id}" style="border-top:3px solid ${col.cor}">
+                <div class="logistica-col-head">
+                  <span class="logistica-col-label">${col.icon||''} ${escapeHtml(col.label)}</span>
+                  <span class="logistica-col-count">${col.lista.length}</span>
+                </div>
+                <div class="logistica-col-body" data-col="${col.id}">
+                  ${col.lista.length === 0
+                    ? '<div class="logistica-col-empty">Nenhuma OS</div>'
+                    : col.lista.map(o => _osKanbanCard(o)).join('')
+                  }
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    `));
+
+    // Drag & drop entre colunas pra trocar status
+    wrap.querySelectorAll('.os-k-card').forEach(card => {
+      card.draggable = true;
+      card.addEventListener('dragstart', e => {
+        e.dataTransfer.setData('text/plain', card.dataset.osid);
+        card.style.opacity = '0.5';
+      });
+      card.addEventListener('dragend', () => { card.style.opacity = '1'; });
+    });
+    wrap.querySelectorAll('.logistica-col-body').forEach(body => {
+      body.addEventListener('dragover', e => { e.preventDefault(); body.style.background = 'rgba(0,0,0,.03)'; });
+      body.addEventListener('dragleave', () => { body.style.background = ''; });
+      body.addEventListener('drop', e => {
+        e.preventDefault();
+        body.style.background = '';
+        const osId = e.dataTransfer.getData('text/plain');
+        const novoStatus = body.dataset.col;
+        const os = DB.osServicos.find(x => x.id === osId);
+        if (!os || os.status === novoStatus) return;
+        if (typeof mudarStatusOS === 'function') {
+          mudarStatusOS(osId, novoStatus);
+        } else {
+          os.status = novoStatus;
+          saveDB();
+        }
+        renderOSSubpage();
+      });
+    });
+  }
+
+  // Bindings dos filtros
+  let _t;
+  parent.querySelector('#osk-busca').oninput = (e) => {
+    clearTimeout(_t);
+    _t = setTimeout(() => { F.busca = e.target.value.trim(); rerender(); }, 200);
+  };
+  parent.querySelector('#osk-tipo').onchange = (e) => { F.tipo = e.target.value; rerender(); };
+  parent.querySelector('#osk-tec').onchange = (e) => { F.tecnico = e.target.value; rerender(); };
+
+  rerender();
+}
+
+function _osKanbanCard(o) {
+  const tecnico = o.tecnicoId ? DB.usuarios.find(u => u.id === o.tecnicoId) : null;
+  const prio = o.prioridade || 'media';
+  const corPrio = prio === 'alta' ? '#B0241F' : prio === 'media' ? '#9A6A0A' : '#808080';
+  const dataAg = o.dataAgendada ? `${isoToBR(o.dataAgendada)}${o.horaAgendada?` ${o.horaAgendada}`:''}` : '';
+  const checklistTotal = Array.isArray(o.checklist) ? o.checklist.length : 0;
+  const checklistFeito = Array.isArray(o.checklist) ? o.checklist.filter(c => c.status === 'concluido').length : 0;
+  return `
+    <div class="logistica-card os-k-card" data-osid="${o.id}" onclick="abrirOSPage('${o.id}')" style="cursor:pointer">
+      <div class="logistica-card-head">
+        <strong class="logistica-card-id">${escapeHtml(o.id)}</strong>
+        ${prio !== 'media' ? `<span style="font-size:9.5px;padding:1px 6px;border-radius:3px;background:${corPrio}15;color:${corPrio};font-weight:500;text-transform:uppercase;letter-spacing:.04em">${prio}</span>` : ''}
+      </div>
+      <div class="logistica-card-cli">${escapeHtml(o.cliente||'—')}</div>
+      ${o.tipo ? `<div style="font-size:10px;color:var(--muted);margin-bottom:3px">${escapeHtml(o.tipo)}</div>` : ''}
+      ${dataAg ? `<div style="font-size:10px;color:var(--muted);margin-bottom:3px">📅 ${dataAg}</div>` : ''}
+      ${tecnico ? `<div style="font-size:10px;color:var(--muted);margin-bottom:3px">👤 ${escapeHtml(_nomeCurto(tecnico.nome||tecnico.email))}</div>` : ''}
+      ${checklistTotal > 0 ? `<div style="font-size:10px;color:${checklistFeito===checklistTotal?'#1D9E75':'var(--muted)'};margin-bottom:6px;font-weight:500">✓ ${checklistFeito}/${checklistTotal}</div>` : ''}
+      <div class="logistica-card-foot">
+        <span class="logistica-card-val">${o.valor>0?brl(o.valor):'—'}</span>
+        ${o.pedidoId ? `<span style="font-size:10px;color:var(--info)">📦 ${escapeHtml(o.pedidoId)}</span>` : '<span style="font-size:10px;color:var(--muted-2);letter-spacing:.04em;text-transform:uppercase">Avulsa</span>'}
+      </div>
+    </div>
+  `;
 }
 
 // ============ AGENDA ============
@@ -21603,7 +22385,13 @@ function renderAgendaLista() {
 // ============ FORMULÁRIO EM PÁGINA INTEIRA ============
 function abrirOSPage(id) {
   const editing = id ? DB.osServicos.find(o => o.id === id) : null;
-  _osForm = editing ? JSON.parse(JSON.stringify(editing)) : {
+  _osForm = editing ? JSON.parse(JSON.stringify(editing)) : null;
+  if (_osForm) {
+    // Garante presença de arrays novos em OS antigas
+    if (!Array.isArray(_osForm.checklist)) _osForm.checklist = [];
+    if (!Array.isArray(_osForm.anexos)) _osForm.anexos = [];
+  }
+  _osForm = _osForm || {
     id: null,
     pedidoId: '', orcamentoId: '',
     cliente: '', clienteId: '',
@@ -21624,7 +22412,11 @@ function abrirOSPage(id) {
     // Endereço
     endereco: '', cep: '', bairro: '', cidade: '', uf: '',
     // Materiais
-    materiais: [],     // [{produtoId, sku, nome, qtd, custoUn}]
+    materiais: [],     // [{produtoId, sku, nome, qtd, custoUn, unidade}]
+    // Checklist personalizável
+    checklist: [],     // [{id, texto, status:'pendente'|'em_andamento'|'concluido', criadoEm, atualizadoEm, atualizadoPor}]
+    // Anexos (PDFs, docs, imagens auxiliares)
+    anexos: [],        // [{nome, mime, tamanho, dataUrl, data, adicionadoPor}]
     // Pagamento
     valor: 0, desconto: 0, descontoTipo: '%',
     formaPagamento: '', parcelas: 1, observacoesFinanceiras: '',
@@ -21731,11 +22523,15 @@ function mudarStatusOS(novoStatus) {
 }
 
 function renderOSAbas() {
+  const checkTotal = (_osForm.checklist||[]).length;
+  const checkFeito = (_osForm.checklist||[]).filter(c => c.status === 'concluido').length;
   const tabs = [
     { id: 'principal',  label: 'Principal' },
     { id: 'materiais',  label: `Materiais (${(_osForm.materiais||[]).length})` },
+    { id: 'checklist',  label: `Checklist${checkTotal?` (${checkFeito}/${checkTotal})`:''}` },
     { id: 'medicoes',   label: `Medições (${(_osForm.medicoes||[]).length})` },
     { id: 'imagens',    label: 'Imagens & Assinatura' },
+    { id: 'anexos',     label: `Anexos${(_osForm.anexos||[]).length?` (${(_osForm.anexos||[]).length})`:''}` },
     { id: 'pagamento',  label: 'Pagamento' },
     { id: 'logistica',  label: 'Logística' },
     { id: 'historico',  label: 'Histórico' },
@@ -21761,8 +22557,10 @@ function renderOSAbaContent() {
   const renderers = {
     principal: renderOSAbaPrincipal,
     materiais: renderOSAbaMateriais,
+    checklist: renderOSAbaChecklist,
     medicoes: renderOSAbaMedicoes,
     imagens: renderOSAbaImagens,
+    anexos: renderOSAbaAnexos,
     pagamento: renderOSAbaPagamento,
     logistica: renderOSAbaLogistica,
     historico: renderOSAbaHistorico,
@@ -21887,7 +22685,7 @@ function renderOSAbaPrincipal(parent) {
             <label>Vendedor responsável</label>
             <select id="of-vendedor">
               <option value="">— Selecione —</option>
-              ${DB.usuarios.filter(u => u.ativo!==false).map(u => `<option value="${u.id}" data-nome="${escapeHtml(u.nome)}" ${f.vendedorId===u.id?'selected':''}>${escapeHtml(u.nome)}${u.cargo?' · '+escapeHtml(u.cargo):''}</option>`).join('')}
+              ${DB.usuarios.filter(u => u.ativo!==false).map(u => `<option value="${u.id}" data-nome="${escapeHtml(u.nome)}" ${f.vendedorId===u.id?'selected':''}>${escapeHtml(_nomeCurto(u.nome))}</option>`).join('')}
             </select>
             <div class="fp-hint">${DB.usuarios.length === 0 ? '<a href="#" onclick="event.preventDefault();navigate(\'usuarios\')">Cadastrar usuários</a>' : 'Vinculado ao cadastro de usuários do sistema'}</div>
           </div>
@@ -21895,7 +22693,7 @@ function renderOSAbaPrincipal(parent) {
             <label>Técnico responsável</label>
             <select id="of-tecnico">
               <option value="">— Selecione —</option>
-              ${DB.usuarios.filter(u => u.ativo!==false).map(u => `<option value="${u.id}" ${f.tecnicoId===u.id?'selected':''}>${escapeHtml(u.nome)}${u.cargo?' · '+escapeHtml(u.cargo):''}</option>`).join('')}
+              ${DB.usuarios.filter(u => u.ativo!==false).map(u => `<option value="${u.id}" ${f.tecnicoId===u.id?'selected':''}>${escapeHtml(_nomeCurto(u.nome))}</option>`).join('')}
             </select>
             <div class="fp-hint">${DB.usuarios.length === 0 ? '<a href="#" onclick="event.preventDefault();navigate(\'usuarios\')">Cadastrar usuários</a>' : 'Vinculado ao cadastro de usuários do sistema'}</div>
           </div>
@@ -22693,6 +23491,169 @@ function atualizarCustoCombustivel() {
 }
 
 // ============ ABA: HISTÓRICO ============
+// ============ ABA: CHECKLIST ============
+function renderOSAbaChecklist(parent) {
+  _osForm.checklist = _osForm.checklist || [];
+  parent.appendChild(el(`
+    <div class="fp-card" style="margin-bottom:14px">
+      <div style="display:flex;align-items:flex-start;gap:14px">
+        <div style="width:36px;height:36px;border-radius:50%;background:var(--info-bg);color:var(--info);display:grid;place-items:center;flex-shrink:0">${ICONS.check||'✓'}</div>
+        <div style="flex:1">
+          <h3 style="font-size:14px;margin:0 0 4px">Checklist da OS</h3>
+          <p style="font-size:12px;color:var(--muted);margin:0;line-height:1.5">Cria as etapas/tarefas que o técnico precisa cumprir no atendimento. Cada item pode ser marcado como pendente, em andamento ou concluído.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="fp-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <h3 class="fp-card-title" style="margin:0">Etapas <span style="font-weight:400;color:var(--muted);font-size:12px">(${_osForm.checklist.length})</span></h3>
+        <button class="btn btn-primary btn-sm" type="button" id="chk-add">${ICONS.plus} Adicionar etapa</button>
+      </div>
+
+      <div id="chk-lista">
+        ${_osForm.checklist.length === 0 ? `
+          <div style="padding:24px;text-align:center;color:var(--muted);font-size:12.5px">Nenhuma etapa cadastrada. Adicione tarefas que o técnico vai cumprir nesta OS.</div>
+        ` : _osForm.checklist.map((c, idx) => {
+          const cor = c.status === 'concluido' ? '#1D9E75' : c.status === 'em_andamento' ? '#BA7517' : '#808080';
+          const opts = [
+            { v: 'pendente',     l: 'Pendente' },
+            { v: 'em_andamento', l: 'Em andamento' },
+            { v: 'concluido',    l: 'Concluído' },
+          ];
+          return `
+            <div style="display:flex;gap:8px;align-items:center;padding:10px 12px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;background:var(--surface);border-left:3px solid ${cor}">
+              <input type="text" class="chk-texto" data-idx="${idx}" value="${escapeHtml(c.texto||'')}" placeholder="Descrição da etapa" style="flex:1;font-size:12.5px;padding:6px 8px;border:1px solid var(--border);border-radius:5px">
+              <select class="chk-status" data-idx="${idx}" style="font-size:11.5px;padding:6px 8px;border:1px solid var(--border);border-radius:5px;color:${cor};font-weight:500">
+                ${opts.map(o => `<option value="${o.v}" ${c.status===o.v?'selected':''}>${o.l}</option>`).join('')}
+              </select>
+              <button class="row-action-btn danger" type="button" data-rm-chk="${idx}" title="Remover">${ICONS.trash}</button>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `));
+
+  parent.querySelector('#chk-add').onclick = () => {
+    _osForm.checklist.push({
+      id: 'chk_' + Date.now().toString(36),
+      texto: '',
+      status: 'pendente',
+      criadoEm: new Date().toISOString(),
+    });
+    renderOSAbaContent();
+    renderOSAbas();
+  };
+  parent.querySelectorAll('.chk-texto').forEach(inp => {
+    inp.oninput = () => { _osForm.checklist[+inp.dataset.idx].texto = inp.value; };
+  });
+  parent.querySelectorAll('.chk-status').forEach(sel => {
+    sel.onchange = () => {
+      const idx = +sel.dataset.idx;
+      _osForm.checklist[idx].status = sel.value;
+      _osForm.checklist[idx].atualizadoEm = new Date().toISOString();
+      _osForm.checklist[idx].atualizadoPor = (typeof getUsuarioAtualNome === 'function' ? getUsuarioAtualNome() : 'Sistema');
+      renderOSAbaContent();
+      renderOSAbas();
+    };
+  });
+  parent.querySelectorAll('[data-rm-chk]').forEach(btn => {
+    btn.onclick = () => {
+      _osForm.checklist.splice(+btn.dataset.rmChk, 1);
+      renderOSAbaContent();
+      renderOSAbas();
+    };
+  });
+}
+
+// ============ ABA: ANEXOS ============
+function renderOSAbaAnexos(parent) {
+  _osForm.anexos = _osForm.anexos || [];
+  parent.appendChild(el(`
+    <div class="fp-card" style="margin-bottom:14px">
+      <div style="display:flex;align-items:flex-start;gap:14px">
+        <div style="width:36px;height:36px;border-radius:50%;background:var(--info-bg);color:var(--info);display:grid;place-items:center;flex-shrink:0">📎</div>
+        <div style="flex:1">
+          <h3 style="font-size:14px;margin:0 0 4px">Anexos da OS</h3>
+          <p style="font-size:12px;color:var(--muted);margin:0;line-height:1.5">PDFs, documentos técnicos, imagens auxiliares e qualquer arquivo relacionado ao serviço.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="fp-card">
+      <h3 class="fp-card-title">Arquivos <span style="font-weight:400;color:var(--muted);font-size:12px">(${_osForm.anexos.length})</span></h3>
+      <div id="os-anexos-lista" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">
+        ${_osForm.anexos.length === 0
+          ? '<div style="padding:14px;text-align:center;color:var(--muted);font-size:11.5px">Nenhum arquivo anexado</div>'
+          : _osForm.anexos.map((a, i) => {
+              const isImg = /^image\//.test(a.mime||'') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(a.nome||'');
+              const isPdf = /pdf/.test(a.mime||'') || /\.pdf$/i.test(a.nome||'');
+              const ico = isImg?'🖼':isPdf?'📄':'📎';
+              return `
+                <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface)">
+                  <span style="font-size:18px">${ico}</span>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(a.nome||'arquivo')}</div>
+                    <div style="font-size:10.5px;color:var(--muted);margin-top:1px">${a.tamanho?(a.tamanho/1024).toFixed(0)+' KB':''}${a.data?' · '+new Date(a.data).toLocaleDateString('pt-BR'):''}</div>
+                  </div>
+                  <a href="${a.dataUrl||'#'}" target="_blank" class="btn-mini" style="text-decoration:none;color:var(--ink-2)">👁 Ver</a>
+                  <button type="button" class="btn-mini" data-rm-os-anexo="${i}" style="background:#fff;color:var(--danger);border:1px solid #B0241F40">×</button>
+                </div>
+              `;
+            }).join('')
+        }
+      </div>
+      <label for="os-anexo-input" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;border:2px dashed var(--border);border-radius:8px;cursor:pointer;background:var(--surface);font-size:12px;color:var(--muted)">
+        <span style="font-size:18px">📎</span>
+        <span><strong style="color:var(--ink)">Clique aqui ou arraste arquivos</strong><br><span style="font-size:10.5px">PDFs, imagens, docs · máx 5MB cada</span></span>
+      </label>
+      <input type="file" id="os-anexo-input" multiple accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
+    </div>
+  `));
+
+  parent.querySelector('#os-anexo-input').addEventListener('change', (e) => {
+    const files = [...(e.target.files||[])];
+    files.forEach(file => {
+      if (file.size > 5 * 1024 * 1024) {
+        toast(`"${file.name}" passa de 5MB — não anexado`, 'warning');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        _osForm.anexos.push({
+          nome: file.name,
+          mime: file.type,
+          tamanho: file.size,
+          dataUrl: ev.target.result,
+          data: new Date().toISOString(),
+          adicionadoPor: (typeof getUsuarioAtualNome === 'function' ? getUsuarioAtualNome() : 'Sistema'),
+        });
+        renderOSAbaContent();
+        renderOSAbas();
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = '';
+  });
+
+  parent.querySelectorAll('[data-rm-os-anexo]').forEach(btn => {
+    btn.onclick = () => {
+      const idx = +btn.dataset.rmOsAnexo;
+      confirmAction({
+        title: 'Remover anexo?',
+        message: `Remover "${escapeHtml(_osForm.anexos[idx]?.nome||'')}" desta OS?`,
+        danger: true,
+        onConfirm: () => {
+          _osForm.anexos.splice(idx, 1);
+          renderOSAbaContent();
+          renderOSAbas();
+        }
+      });
+    };
+  });
+}
+
 function renderOSAbaHistorico(parent) {
   const eventos = [...(_osForm.historico||[])].reverse();
   parent.appendChild(el(`
@@ -22902,6 +23863,31 @@ function renderOSVeiculos(parent) {
   pageHead(parent, 'Frota de <em>veículos</em>', `${DB.veiculos.length} veículo(s)`,
     `<button class="btn btn-primary btn-sm" onclick="abrirVeiculoModal()">${ICONS.plus} Novo veículo</button>`);
 
+  // Combustível — config global da frota (fica no cadastro de transporte)
+  parent.appendChild(el(`
+    <div class="fp-card" style="margin-bottom:14px">
+      <h3 class="fp-card-title">Combustível</h3>
+      <div class="fp-grid-2" style="align-items:flex-end">
+        <div class="fp-field" style="margin-bottom:0">
+          <label>Preço médio da gasolina (R$/L)</label>
+          <input type="number" id="cfg-comb-veic" step="0.01" min="0" value="${DB.configOS.precoCombustivel||0}">
+          <div class="fp-hint">Usado pra calcular custo de deslocamento de cada veículo da frota</div>
+        </div>
+        <div>
+          <button class="btn btn-primary btn-sm" id="cfg-comb-salvar" type="button">${ICONS.check} Salvar</button>
+        </div>
+      </div>
+    </div>
+  `));
+  parent.querySelector('#cfg-comb-salvar').onclick = () => {
+    const v = +parent.querySelector('#cfg-comb-veic').value || 0;
+    DB.configOS = DB.configOS || {};
+    DB.configOS.precoCombustivel = v;
+    saveDB();
+    toast(`Preço do combustível salvo · R$ ${v.toFixed(2)}/L`, 'success');
+    renderOSSubpage();
+  };
+
   if (DB.veiculos.length === 0) {
     parent.appendChild(el('<div class="card"></div>')).appendChild(
       emptyState('car', 'Sem veículos cadastrados', 'Cadastre a frota para calcular custos de deslocamento.', 'Cadastrar veículo', () => abrirVeiculoModal())
@@ -23032,16 +24018,11 @@ function renderOSConfig(parent) {
   pageHead(parent, 'Configurações <em>de OS</em>', 'Parâmetros operacionais');
 
   parent.appendChild(el(`
-    <div class="fp-card">
-      <h3 class="fp-card-title">Combustível</h3>
-      <div class="fp-grid-2">
-        <div class="fp-field">
-          <label>Preço médio da gasolina (R$/L)</label>
-          <input type="number" id="cfg-comb" step="0.01" value="${DB.configOS.precoCombustivel||0}">
-          <div class="fp-hint">Usado pra cálculo automático do custo de deslocamento</div>
-        </div>
+    <div class="fp-card" style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;font-size:11.5px;color:var(--muted);line-height:1.5">
+        <span style="font-size:14px">ⓘ</span>
+        <span>O preço do combustível foi movido pra <a href="#" onclick="event.preventDefault();_osSubpage='veiculos';renderOSSubpage();" style="color:var(--info);font-weight:500">Frota de veículos</a> — cabe junto do cadastro de transporte.</span>
       </div>
-      <button class="btn btn-primary btn-sm" onclick="salvarConfigOS()" style="margin-top:6px">${ICONS.check} Salvar configurações</button>
     </div>
 
     <div class="fp-card">
@@ -24806,7 +25787,7 @@ function renderPedListagem(parent, filtroFn) {
     finalizados: '<em>Finalizados</em>',
   };
   pageHead(parent, titulos[_pedSubpage] || 'Pedidos', '',
-    `<button class="btn btn-primary btn-sm" onclick="openPedidoModal()">${ICONS.plus} Novo pedido</button>`);
+    `<button class="btn btn-primary btn-sm" onclick="openPedidoModal()" title="Novo pedido" aria-label="Novo pedido" style="padding:6px 10px;display:inline-flex;align-items:center;justify-content:center;line-height:1">${ICONS.plus}</button>`);
 
   // Busca + Filtros + Tabs SEMPRE renderizados (mesmo com lista vazia)
   const tiposEntregaPed = ['Retirada','Expedição','Transportadora','Correios','Outros'];
@@ -25058,7 +26039,22 @@ function renderPedRow(p) {
     <tr class="ped-row" data-pedid="${p.id}" style="cursor:pointer" onclick="openPedidoModal('${p.id}')">
       <td>
         <strong style="font-size:12.5px">${p.id}</strong>
+        ${(() => {
+          // Tag de origem (troca/devolução) — herda do pedido OU consulta troca vinculada como fallback
+          let tag = p.tagOrigem;
+          if (!tag && p.origemTrocaId) {
+            const tr = (DB.trocas||[]).find(t => t.id === p.origemTrocaId);
+            tag = tr?.tipo === 'garantia' ? 'Troca garantia' : 'Troca';
+          }
+          if (!tag && p.origemDevolucaoId) tag = 'Devolução';
+          if (!tag) return '';
+          let cor = '#1E4F8F';
+          if (tag === 'Troca garantia') cor = '#BA7517';
+          else if (tag === 'Devolução')  cor = '#B0241F';
+          return `<span style="display:inline-block;margin-left:6px;color:${cor};font-size:9.5px;font-weight:500;letter-spacing:.05em;text-transform:uppercase;padding:1px 7px;border:1px solid ${cor}55;border-radius:3px;background:${cor}10;vertical-align:middle">${escapeHtml(tag)}</span>`;
+        })()}
         ${p.orcamentoId ? `<div style="font-size:10px;color:var(--muted);margin-top:2px"><span style="color:var(--info);cursor:pointer" onclick="event.stopPropagation();abrirOrcamentoDetalhe('${p.orcamentoId}')">${_fmtRef(p.orcamentoId,'orc')}</span></div>` : ''}
+        ${p.pedidoOrigemId ? `<div style="font-size:10px;color:#6B4A0A;margin-top:2px;font-weight:500;cursor:pointer" onclick="event.stopPropagation();abrirPedidoTimeline('${p.pedidoOrigemId}')" title="Abrir pedido origem ${_fmtRef(p.pedidoOrigemId,'ped')}">↪ Origem ${_fmtRef(p.pedidoOrigemId,'ped')}</div>` : ''}
         ${p.fabricado ? `<div style="font-size:9.5px;color: var(--warning);margin-top:2px;letter-spacing:0.04em;text-transform:uppercase">Fabricado</div>` : ''}
       </td>
       <td class="num" style="font-family:var(--mono);font-size:11.5px;color:var(--muted)">${p.clienteId ? escapeHtml(_idLimpo(p.clienteId)) : '—'}</td>
@@ -25388,6 +26384,8 @@ function aprovarFinanceiroPedido(id) {
       adicionarTimelinePedido(p, 'Financeiro aprovado', `Pagamento confirmado · valor ${brl(p.valor)}`);
       // Se foi gerada separação ainda não existe, cria entrada em DB.separacoes
       criarSeparacaoSeNecessario(p);
+      // Auto-cria OS técnica vinculada (se ainda não existe)
+      criarOSAutoDoPedido(p);
       saveDB();
       toast(`Pedido ${p.id} aprovado pelo financeiro`, 'success');
       renderPage(currentPage);
@@ -25395,14 +26393,68 @@ function aprovarFinanceiroPedido(id) {
   });
 }
 
+// Cria automaticamente uma OS vinculada ao pedido. Não exibe confirmação (silencioso).
+// Não duplica se o pedido já tem osVinculadaId. Usado em hooks de criação/aprovação.
+function criarOSAutoDoPedido(p) {
+  if (!p || p.osVinculadaId) return;
+  if (!Array.isArray(DB.osServicos)) DB.osServicos = [];
+  const cli = (DB.clientes||[]).find(c => c.id === p.clienteId);
+  const env = p.envio || {};
+  const os = {
+    id: nextId('os', 'OS'),
+    pedidoId: p.id,
+    orcamentoId: p.orcamentoId || '',
+    clienteId: p.clienteId || '',
+    cliente: p.cliente || '',
+    tipo: (DB.configOS?.tiposServico?.[0]) || 'Instalação',
+    prioridade: 'media',
+    descricao: `Atendimento referente ao pedido ${p.id}`,
+    status: 'aberta',
+    dataAgendada: '',
+    horaAgendada: '09:00',
+    cep:      env.cep || cli?.cep || '',
+    endereco: env.rua || cli?.endereco || '',
+    numero:   env.numero || cli?.numero || '',
+    complemento: env.complemento || cli?.complemento || '',
+    bairro:   env.bairro || cli?.bairro || '',
+    cidade:   env.cidade || cli?.cidade || '',
+    uf:       env.uf || cli?.uf || '',
+    vendedor: p.vendedor || '',
+    materiais: (p.itens||[]).map(i => ({
+      produtoId: i.produtoId || '',
+      sku: i.sku || '',
+      nome: i.nome,
+      qtd: i.qtd || 1,
+      custoUn: i.valor || 0,
+      unidade: i.unidade || 'un',
+    })),
+    checklist: [],
+    anexos: [],
+    historico: [],
+    criadoEm: new Date().toISOString(),
+    criadoPor: (typeof getUsuarioAtualNome === 'function' ? getUsuarioAtualNome() : 'Sistema'),
+    criadoAuto: true,
+  };
+  DB.osServicos.push(os);
+  p.osVinculadaId = os.id;
+  if (typeof adicionarTimelinePedido === 'function') {
+    adicionarTimelinePedido(p, 'OS criada automaticamente', `${os.id} entrou no kanban como "Aberta"`);
+  }
+}
+
+// Formata o Nº de separação espelhando a sequência do pedido — SEP-01, SEP-02...
+function fmtNSep(p) {
+  if (!p) return '';
+  const m = (p.id||'').match(/(\d+)$/);
+  const n = m ? parseInt(m[1], 10) : 0;
+  return 'SEP-' + String(n).padStart(2, '0');
+}
+
 function criarSeparacaoSeNecessario(p) {
   if (!DB.separacoes) DB.separacoes = [];
   if (DB.separacoes.find(s => s.pedidoId === p.id)) return; // já existe
-  // Nº de separação automático no próprio pedido (usado pelos cards do kanban)
-  if (!p.nSeparacao) {
-    DB.sepSeq = (DB.sepSeq||1000) + 1;
-    p.nSeparacao = 'SEP-' + String(DB.sepSeq).padStart(6,'0');
-  }
+  // Nº de separação espelha o pedido (SEP-01, SEP-02...)
+  p.nSeparacao = fmtNSep(p);
   DB.separacoes.push({
     id: p.nSeparacao,
     pedidoId: p.id,
@@ -25426,7 +26478,7 @@ function gerarPDFRomaneio(pedidoId) {
   if (p.canceladoEm) { toast('Pedido cancelado — sem romaneio', 'danger'); return; }
 
   const sep = (DB.separacoes||[]).find(s => s.pedidoId === pedidoId);
-  const nSep = p.nSeparacao || sep?.id || `SEP-${p.id.replace('PED-','')}`;
+  const nSep = fmtNSep(p);
   const cliente = DB.clientes.find(c => c.id === p.clienteId) || {};
   const orc = DB.orcamentos.find(o => o.id === p.orcamentoId);
   const cidade = p.envio?.cidade || orc?.envio?.cidade || cliente.cidade || '';
@@ -25919,12 +26971,284 @@ function expedirPedido(id) {
 function marcarPedidoEntregue(id) {
   const p = DB.pedidos.find(x => x.id === id);
   if (!p) return;
+  abrirModalFinalizarEntrega(p, (dados) => _confirmarEntregaPedido(p, dados));
+}
+
+// Aplica a confirmação física (fotos, NF, assinatura, obs) e finaliza o pedido.
+function _confirmarEntregaPedido(p, dados) {
   p.entregueEm = new Date().toISOString();
-  p.finalizadoEm = p.entregueEm; // mantém compat com código legado
-  adicionarTimelinePedido(p, 'Entregue', 'Cliente confirmou recebimento');
+  p.finalizadoEm = p.entregueEm;
+  p.entregaConfirmacao = {
+    ...dados,
+    confirmadoPor: getUsuarioAtualNomeOu('Sistema'),
+  };
+  adicionarTimelinePedido(p, 'Entregue', `Cliente confirmou recebimento · ${dados.fotosProdutos.length} foto(s) do produto + NF assinada + assinatura digital${dados.obs?` · obs: ${dados.obs}`:''}`);
   saveDB();
   toast(`Pedido ${p.id} entregue`, 'success');
   renderPage(currentPage);
+}
+
+// Comprovante de entrega — mostra fotos, NF, assinatura e observação do pedido entregue.
+function abrirComprovanteEntrega(pedidoId) {
+  const p = (DB.pedidos||[]).find(x => x.id === pedidoId);
+  if (!p) { toast('Pedido não encontrado', 'danger'); return; }
+  const c = p.entregaConfirmacao;
+  if (!c) {
+    confirmAction({
+      title: 'Sem comprovante registrado',
+      message: `<p style="font-size:12.5px;line-height:1.5">Este pedido foi marcado como entregue antes da exigência de comprovante (fotos + NF + assinatura). Novas entregas a partir de agora geram comprovante automaticamente.</p>`,
+      danger: false,
+      html: true,
+      onConfirm: () => {},
+    });
+    return;
+  }
+  const dataEm = p.entregueEm ? new Date(p.entregueEm).toLocaleString('pt-BR') : '—';
+  const m = openModal({
+    title: `Comprovante de entrega · ${p.id}`,
+    size: 'lg',
+    body: `
+      <div style="max-height:75vh;overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding-right:4px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:12px 14px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;font-size:12.5px">
+          <div>
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500">Cliente</div>
+            <div style="font-weight:500;margin-top:2px">${escapeHtml(p.cliente||'—')}</div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500">Entregue em</div>
+            <div style="font-weight:500;margin-top:2px;font-family:var(--mono)">${dataEm}</div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500">Confirmado por</div>
+            <div style="font-weight:500;margin-top:2px">${escapeHtml(c.confirmadoPor||'—')}</div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500">Valor</div>
+            <div style="font-weight:500;margin-top:2px;font-family:var(--mono)">${brl(p.valor||0)}</div>
+          </div>
+        </div>
+
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500;display:block;margin-bottom:6px">Fotos dos produtos no local (${(c.fotosProdutos||[]).length})</label>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            ${(c.fotosProdutos||[]).map((d, i) => `
+              <a href="${d}" target="_blank" style="display:block;width:120px;height:120px;border:1px solid var(--border);border-radius:6px;overflow:hidden;cursor:zoom-in">
+                <img src="${d}" style="width:100%;height:100%;object-fit:cover" alt="Foto ${i+1}">
+              </a>
+            `).join('') || '<div style="font-size:11.5px;color:var(--muted);padding:8px">Nenhuma foto registrada.</div>'}
+          </div>
+        </div>
+
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500;display:block;margin-bottom:6px">NF assinada</label>
+          ${c.fotoNf ? `
+            <a href="${c.fotoNf}" target="_blank" style="display:inline-block;width:200px;border:1px solid var(--border);border-radius:6px;overflow:hidden;cursor:zoom-in">
+              <img src="${c.fotoNf}" style="width:100%;display:block" alt="NF assinada">
+            </a>
+          ` : '<div style="font-size:11.5px;color:var(--muted);padding:8px">NF não anexada.</div>'}
+        </div>
+
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500;display:block;margin-bottom:6px">Assinatura do cliente</label>
+          ${c.assinatura ? `
+            <div style="border:1px solid var(--border);border-radius:6px;background:#fff;padding:6px;display:inline-block">
+              <img src="${c.assinatura}" style="display:block;max-width:100%;height:auto" alt="Assinatura">
+            </div>
+          ` : '<div style="font-size:11.5px;color:var(--muted);padding:8px">Assinatura não capturada.</div>'}
+        </div>
+
+        ${c.obs ? `
+          <div>
+            <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500;display:block;margin-bottom:6px">Observação</label>
+            <div style="padding:10px 12px;background:var(--surface-2);border-left:2px solid var(--ink);border-radius:4px;font-size:12px;line-height:1.55;white-space:pre-wrap">${escapeHtml(c.obs)}</div>
+          </div>
+        ` : ''}
+      </div>
+    `,
+    footer: `<button class="btn btn-primary" id="ce-fechar">Fechar</button>`
+  });
+  m.root.querySelector('#ce-fechar').onclick = () => m.close();
+}
+
+// Modal de finalização de entrega: foto dos produtos no local, foto da NF assinada,
+// assinatura virtual (canvas) e observação (opcional).
+function abrirModalFinalizarEntrega(pedido, onConfirm) {
+  if (!pedido) return;
+
+  const m = openModal({
+    title: `Confirmar entrega · ${pedido.id}`,
+    size: 'lg',
+    body: `
+      <div style="display:flex;flex-direction:column;gap:14px;max-height:70vh;overflow-y:auto;padding-right:4px">
+        <div style="padding:12px 14px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;font-size:12.5px">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500">Cliente</div>
+          <div style="font-weight:500;margin-top:2px">${escapeHtml(pedido.cliente||'—')}</div>
+        </div>
+
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500;display:block;margin-bottom:4px">Fotos dos produtos no local <span style="color:#B0241F">*</span></label>
+          <input type="file" id="fe-foto-prod" accept="image/*" capture="environment" multiple style="font-size:12px">
+          <div id="fe-fotos-prod-preview" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"></div>
+        </div>
+
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500;display:block;margin-bottom:4px">Foto da NF assinada <span style="color:#B0241F">*</span></label>
+          <input type="file" id="fe-foto-nf" accept="image/*" capture="environment" style="font-size:12px">
+          <div id="fe-foto-nf-preview" style="margin-top:8px"></div>
+        </div>
+
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500;display:flex;justify-content:space-between;align-items:center">
+            <span>Assinatura do cliente <span style="color:#B0241F">*</span></span>
+            <button type="button" id="fe-sign-limpar" style="background:none;border:1px solid var(--border);border-radius:4px;padding:3px 9px;font-size:10.5px;cursor:pointer;color:var(--muted);text-transform:none;letter-spacing:0;font-weight:500">Limpar</button>
+          </label>
+          <canvas id="fe-sign" width="800" height="240" style="border:1px solid var(--border);border-radius:6px;display:block;width:100%;height:180px;background:#fff;touch-action:none;cursor:crosshair;margin-top:4px"></canvas>
+        </div>
+
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500;display:block;margin-bottom:4px">Observação <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;font-size:11px">(opcional)</span></label>
+          <textarea id="fe-obs" rows="3" placeholder="Detalhes adicionais sobre a entrega..." style="width:100%"></textarea>
+        </div>
+      </div>
+    `,
+    footer: `
+      <button class="btn btn-secondary" id="fe-cancel">Cancelar</button>
+      <button class="btn btn-primary" id="fe-confirm" style="background:#1D9E75;border-color:#1D9E75">Confirmar entrega</button>
+    `
+  });
+
+  const root = m.root;
+  const fotosProdutos = [];
+  let fotoNf = '';
+
+  // Comprime imagem: max 1280px no maior lado, JPEG quality 0.78 — evita estourar quota
+  function comprimirImagem(file, maxLado = 1280, quality = 0.78) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const img = new Image();
+        img.onload = () => {
+          const ratio = Math.min(1, maxLado / Math.max(img.width, img.height));
+          const w = Math.round(img.width * ratio);
+          const h = Math.round(img.height * ratio);
+          const c = document.createElement('canvas');
+          c.width = w; c.height = h;
+          const cx = c.getContext('2d');
+          cx.fillStyle = '#fff';
+          cx.fillRect(0, 0, w, h);
+          cx.drawImage(img, 0, 0, w, h);
+          resolve(c.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = reject;
+        img.src = ev.target.result;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function renderFotosProdutosPreview() {
+    root.querySelector('#fe-fotos-prod-preview').innerHTML = fotosProdutos.map((d, i) => `
+      <div style="position:relative;width:80px;height:80px;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+        <img src="${d}" style="width:100%;height:100%;object-fit:cover" alt="">
+        <button type="button" data-rm-prod="${i}" style="position:absolute;top:2px;right:2px;background:rgba(0,0,0,0.7);color:#fff;border:0;border-radius:50%;width:20px;height:20px;cursor:pointer;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center">×</button>
+      </div>
+    `).join('');
+    root.querySelectorAll('[data-rm-prod]').forEach(btn => {
+      btn.onclick = () => {
+        fotosProdutos.splice(+btn.dataset.rmProd, 1);
+        renderFotosProdutosPreview();
+      };
+    });
+  }
+
+  root.querySelector('#fe-foto-prod').onchange = async (e) => {
+    const files = [...(e.target.files||[])];
+    for (const file of files) {
+      try {
+        const dataUrl = await comprimirImagem(file);
+        fotosProdutos.push(dataUrl);
+      } catch(err) { console.error('Erro ao processar foto:', err); }
+    }
+    renderFotosProdutosPreview();
+    e.target.value = '';
+  };
+
+  root.querySelector('#fe-foto-nf').onchange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      fotoNf = await comprimirImagem(file);
+      root.querySelector('#fe-foto-nf-preview').innerHTML = `
+        <div style="position:relative;width:120px;height:120px;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+          <img src="${fotoNf}" style="width:100%;height:100%;object-fit:cover" alt="">
+          <button type="button" id="fe-rm-nf" style="position:absolute;top:2px;right:2px;background:rgba(0,0,0,0.7);color:#fff;border:0;border-radius:50%;width:20px;height:20px;cursor:pointer;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center">×</button>
+        </div>
+      `;
+      root.querySelector('#fe-rm-nf').onclick = () => {
+        fotoNf = '';
+        root.querySelector('#fe-foto-nf-preview').innerHTML = '';
+        root.querySelector('#fe-foto-nf').value = '';
+      };
+    } catch(err) { console.error('Erro ao processar NF:', err); }
+  };
+
+  // Canvas de assinatura — suporta mouse + touch
+  const canvas = root.querySelector('#fe-sign');
+  const ctx = canvas.getContext('2d');
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = '#0F172A';
+  let drawing = false, lastX = 0, lastY = 0, signDirty = false;
+
+  function getCoords(e) {
+    const rect = canvas.getBoundingClientRect();
+    const clientX = (e.touches?.[0]?.clientX) ?? e.clientX;
+    const clientY = (e.touches?.[0]?.clientY) ?? e.clientY;
+    return {
+      x: (clientX - rect.left) * (canvas.width / rect.width),
+      y: (clientY - rect.top) * (canvas.height / rect.height),
+    };
+  }
+  function start(e) { e.preventDefault(); drawing = true; const c = getCoords(e); lastX = c.x; lastY = c.y; }
+  function move(e) {
+    if (!drawing) return;
+    e.preventDefault();
+    const c = getCoords(e);
+    ctx.beginPath();
+    ctx.moveTo(lastX, lastY);
+    ctx.lineTo(c.x, c.y);
+    ctx.stroke();
+    lastX = c.x; lastY = c.y;
+    signDirty = true;
+  }
+  function endStroke() { drawing = false; }
+  canvas.addEventListener('mousedown', start);
+  canvas.addEventListener('mousemove', move);
+  canvas.addEventListener('mouseup', endStroke);
+  canvas.addEventListener('mouseleave', endStroke);
+  canvas.addEventListener('touchstart', start, { passive: false });
+  canvas.addEventListener('touchmove', move, { passive: false });
+  canvas.addEventListener('touchend', endStroke);
+
+  root.querySelector('#fe-sign-limpar').onclick = () => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    signDirty = false;
+  };
+
+  root.querySelector('#fe-cancel').onclick = () => m.close();
+  root.querySelector('#fe-confirm').onclick = () => {
+    if (fotosProdutos.length === 0) { toast('Adicione ao menos uma foto dos produtos no local', 'danger'); return; }
+    if (!fotoNf) { toast('Adicione a foto da NF assinada', 'danger'); return; }
+    if (!signDirty) { toast('Capture a assinatura do cliente', 'danger'); return; }
+    const obs = root.querySelector('#fe-obs').value.trim();
+    const assinatura = canvas.toDataURL('image/png');
+    m.close();
+    if (typeof onConfirm === 'function') {
+      onConfirm({ fotosProdutos, fotoNf, assinatura, obs, confirmadoEm: new Date().toISOString() });
+    }
+  };
 }
 
 // =====================================================
@@ -26527,8 +27851,8 @@ function abrirPaginaTroca(pedidoId, opts) {
               const ref = i.sku||i.nome;
               const isInicial = ref === state.itemOriginalSku;
               const semSaldo = i._saldoTroca <= 0;
-              const labelSaldo = semSaldo ? '— sem saldo' : `${i._saldoTroca} ${escapeHtml(i.unidade||'un')} disp.`;
-              return `<option value="${escapeHtml(ref)}" data-valor="${i.valor||0}" data-qtd-comprada="${i.qtd||1}" data-saldo="${i._saldoTroca}" data-unidade="${escapeHtml(i.unidade||'un')}" data-nome="${escapeHtml(i.nome)}" ${isInicial?'selected':''} ${semSaldo && !editandoId ? 'disabled' : ''}>${escapeHtml(i.nome)} · ${labelSaldo}</option>`;
+              const labelSaldo = semSaldo ? ' · sem saldo' : '';
+              return `<option value="${escapeHtml(ref)}" data-valor="${i.valor||0}" data-qtd-comprada="${i.qtd||1}" data-saldo="${i._saldoTroca}" data-unidade="${escapeHtml(i.unidade||'un')}" data-nome="${escapeHtml(i.nome)}" ${isInicial?'selected':''} ${semSaldo && !editandoId ? 'disabled' : ''}>${escapeHtml(i.nome)}${labelSaldo}</option>`;
             }).join('')}
           </select>
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px">
@@ -26769,6 +28093,16 @@ function abrirPaginaTroca(pedidoId, opts) {
     const valorPago = calcularValorPagoItem(orc || p, state.itemOriginalSku, state.qtdOriginal);
     state.novoValor = +valorInp.value || 0;
     state.novoQtd = Math.max(1, +qtdInp.value || 1);
+    // Em garantia, a qtd do substituto fica limitada à qtd que está sendo trocada (1 a 1 ou menos).
+    if (state.tipo === 'garantia') {
+      qtdInp.max = state.qtdOriginal;
+      if (state.novoQtd > state.qtdOriginal) {
+        state.novoQtd = state.qtdOriginal;
+        qtdInp.value = state.qtdOriginal;
+      }
+    } else {
+      qtdInp.removeAttribute('max');
+    }
     const valorNovo = state.novoValor * state.novoQtd;
     state.diferenca = valorNovo - valorPago;
 
@@ -26851,6 +28185,12 @@ function abrirPaginaTroca(pedidoId, opts) {
         state.formaPagDif = formaDifSel ? formaDifSel.value : 'Pix';
         if (!state.motivo) { toast('Selecione o motivo da troca', 'danger'); return; }
         if (!state.novoNome || !state.novoSku) { toast('Selecione o produto substituto no estoque', 'danger'); return; }
+        // Regra de garantia: a quantidade do substituto não pode ultrapassar
+        // a quantidade do item original sendo trocado (1 a 1 ou menos).
+        if (state.tipo === 'garantia' && state.novoQtd > state.qtdOriginal) {
+          toast(`Em garantia, a qtd do substituto (${state.novoQtd}) não pode ser maior que a qtd a trocar (${state.qtdOriginal}).`, 'danger');
+          return;
+        }
         if (state.novoDisponivel > 0 && state.novoQtd > state.novoDisponivel) {
           toast(`Estoque insuficiente · disponível ${fmtInt(state.novoDisponivel)} ${escapeHtml(state.novoUnidade)}`, 'danger');
           return;
@@ -26919,10 +28259,11 @@ function finalizarTroca(p, state) {
   };
   DB.trocas.push(troca);
 
-  // 2. Gera orçamento "Garantia" vinculado
+  // 2. Gera orçamento vinculado (status "Aberto" com tag identificando origem da troca)
   const novoOrcId = nextId('orc', 'ORC');
   const formaPag = state.tipo === 'garantia' ? 'Garantia' : state.formaPagDif;
   const valorOrc = state.tipo === 'garantia' ? 0 : Math.max(0, state.diferenca);
+  const trocaTag = state.tipo === 'garantia' ? 'Troca garantia' : 'Troca';
   const novoOrc = {
     id: novoOrcId,
     clienteId: p.clienteId,
@@ -26940,19 +28281,56 @@ function finalizarTroca(p, state) {
     formaPagamento: formaPag,
     pagamento: { forma: formaPag, valor: valorOrc },
     pagamentos: [{ forma: formaPag, valor: valorOrc }],
-    status: 'Aprovado',
+    status: 'Convertido',
     convertidoEm: agora,
     origemTrocaId: troca.id,
-    tipoOrcamento: 'Troca',
-    historico: [{ data: agora, evento: `Orçamento gerado por troca ${troca.id}`, usuario: userNome }],
+    pedidoOrigemId: p.id,        // pedido que originou a troca
+    tipoOrcamento: trocaTag,  // "Troca garantia" ou "Troca" — vira a tag exibida
+    tagOrigem: trocaTag,
+    historico: [{ data: agora, evento: `Orçamento gerado por troca ${troca.id}`, detalhe: `Pedido origem: ${p.id}`, usuario: userNome }],
     criadoEm: agora,
     obsInternas: `Origem: troca ${troca.id} · pedido ${p.id} · tipo ${state.tipo}`,
   };
   DB.orcamentos.push(novoOrc);
   troca.orcamentoGeradoId = novoOrcId;
 
-  // 3. Gera pedido vinculado
-  const requerAprov = state.tipo === 'comercial' && state.diferenca > 0 && formaExigeAprovacaoFinanceira({pagamentos: novoOrc.pagamentos, formaPagamento: formaPag});
+  // ============================================================
+  // 3. Gera pedido vinculado — define o caminho de aprovação
+  //
+  // Três caminhos possíveis (mutuamente exclusivos):
+  //
+  //   A) GARANTIA (sem cobrança)
+  //      → Não passa pelo Financeiro
+  //      → Aguarda VALIDAÇÃO manual (admin) antes de cair na separação
+  //
+  //   B) COMERCIAL SEM DIFERENÇA (item igual ao original em valor)
+  //      → Não passa pelo Financeiro (nenhum dinheiro envolvido)
+  //      → Aguarda VALIDAÇÃO manual antes de cair na separação
+  //
+  //   C) COMERCIAL COM CRÉDITO (item novo mais barato — sobra valor)
+  //      → Não passa pelo Financeiro
+  //      → Gera crédito pro cliente (1 ano de validade, mesmo formato de devolução)
+  //      → Aguarda VALIDAÇÃO manual antes de cair na separação
+  //
+  //   D) COMERCIAL COM DIFERENÇA A PAGAR (item novo mais caro)
+  //      → Passa pelo FINANCEIRO obrigatoriamente
+  //      → Quando Financeiro aprova, cai direto na separação (sem validação extra)
+  // ============================================================
+  const ehGarantia          = state.tipo === 'garantia';
+  const ehComercialComPagto = state.tipo === 'comercial' && state.diferenca > 0.5;   // D
+  const ehComercialCredito  = state.tipo === 'comercial' && state.diferenca < -0.5;  // C
+  const ehComercialIgual    = state.tipo === 'comercial' && !ehComercialComPagto && !ehComercialCredito; // B
+
+  const requerAprovFinanc   = ehComercialComPagto;        // só D passa pelo Financeiro
+  const requerValidacaoTroca = !ehComercialComPagto;      // A, B e C exigem validação manual
+
+  // Label do caminho pra timeline/toast
+  let caminhoLabel = '';
+  if (ehGarantia)          caminhoLabel = 'Garantia · aguarda validação manual';
+  if (ehComercialIgual)    caminhoLabel = 'Comercial sem diferença · aguarda validação manual';
+  if (ehComercialCredito)  caminhoLabel = `Comercial com crédito de ${brl(Math.abs(state.diferenca))} · aguarda validação manual`;
+  if (ehComercialComPagto) caminhoLabel = `Comercial · aguarda Financeiro aprovar ${brl(state.diferenca)} a cobrar`;
+
   const novoPedId = nextId('ped', 'PED');
   const novoPed = {
     id: novoPedId,
@@ -26964,15 +28342,32 @@ function finalizarTroca(p, state) {
     itens: novoOrc.itens,
     envio: p.envio || { tipo: 'Retirada' },
     criadoEm: agora,
-    timeline: [{ data: agora, evento: 'Pedido criado por troca', detalhe: `Origem: troca ${troca.id}`, usuario: userNome }],
+    timeline: [{ data: agora, evento: 'Pedido criado por troca', detalhe: `Origem: troca ${troca.id} · ${caminhoLabel}`, usuario: userNome }],
     origemTrocaId: troca.id,
-    requerAprovFinanc: requerAprov,
+    pedidoOrigemId: p.id,
+    tagOrigem: trocaTag,
+    requerAprovFinanc,
+    requerValidacaoTroca,
   };
-  // Aprovação automática se NÃO for caso de exceção
-  if (!requerAprov) {
-    novoPed.financeiroAprovadoEm = agora;
-    novoPed.timeline.push({ data: agora, evento: 'Financeiro aprovado automaticamente', detalhe: state.tipo === 'garantia' ? 'Troca por garantia · sem cobrança' : 'Troca comercial · pagamento à vista', usuario: 'Sistema' });
+
+  // Timeline específica por caminho
+  if (requerValidacaoTroca) {
+    novoPed.timeline.push({
+      data: agora,
+      evento: 'Aguardando validação da troca',
+      detalhe: 'Pedido só cai na separação após validação manual (não passa pelo Financeiro)',
+      usuario: 'Sistema',
+    });
+  } else if (requerAprovFinanc) {
+    novoPed.timeline.push({
+      data: agora,
+      evento: 'Aguardando aprovação financeira',
+      detalhe: `Cliente deve pagar ${brl(state.diferenca)} antes da separação · forma ${escapeHtml(formaPag)}`,
+      usuario: 'Sistema',
+    });
   }
+  // financeiroAprovadoEm NÃO é setado aqui — depende da ação manual
+  // (validarTroca ou aprovarFinanceiroPedido)
   novoOrc.pedidoId = novoPedId;
   DB.pedidos.push(novoPed);
   troca.pedidoGeradoId = novoPedId;
@@ -27021,10 +28416,20 @@ function finalizarTroca(p, state) {
   }
 
   troca.historico.push({ data: agora, evento: `Orçamento ${novoOrcId} criado`, usuario: userNome });
-  troca.historico.push({ data: agora, evento: `Pedido ${novoPedId} ${requerAprov?'aguarda aprovação financeira':'aprovado automaticamente'}`, usuario: 'Sistema' });
+  troca.historico.push({
+    data: agora,
+    evento: requerAprovFinanc ? `Pedido ${novoPedId} aguarda aprovação financeira` : `Pedido ${novoPedId} aguarda validação manual`,
+    detalhe: caminhoLabel,
+    usuario: 'Sistema',
+  });
 
   saveDB();
-  toast(`Troca ${troca.id} registrada · Pedido ${novoPedId}${requerAprov?' (aguarda financeiro)':' (aprovado)'}`, 'success');
+  toast(
+    requerAprovFinanc
+      ? `Troca ${troca.id} registrada · Pedido ${novoPedId} aguarda Financeiro aprovar ${brl(state.diferenca)} a cobrar`
+      : `Troca ${troca.id} registrada · Pedido ${novoPedId} aguarda validação manual antes da separação`,
+    'success'
+  );
   renderPage(currentPage);
   } catch(err) {
     console.error('Erro ao finalizar troca:', err);
@@ -27721,6 +29126,53 @@ function _reverterArtefatosTroca(t, opts) {
   });
 }
 
+// Valida manualmente uma troca que NÃO passa pelo Financeiro (garantia,
+// comercial sem diferença ou comercial com crédito). Libera o pedido pra
+// cair no kanban de separação.
+function validarTroca(trocaId) {
+  if (!isUsuarioAdmin()) { toast('Apenas administradores podem validar trocas', 'danger'); return; }
+  const t = (DB.trocas||[]).find(x => x.id === trocaId);
+  if (!t) { toast('Troca não encontrada', 'danger'); return; }
+  if (!t.pedidoGeradoId) { toast('Esta troca não tem pedido vinculado', 'danger'); return; }
+  const ped = (DB.pedidos||[]).find(x => x.id === t.pedidoGeradoId);
+  if (!ped) { toast('Pedido gerado pela troca não encontrado', 'danger'); return; }
+  if (!ped.requerValidacaoTroca) {
+    toast('Esta troca não precisa de validação (caminho do Financeiro)', 'warning');
+    return;
+  }
+  if (ped.validadoEm) {
+    toast('Esta troca já foi validada', 'info');
+    return;
+  }
+  confirmAction({
+    title: `Validar troca ${t.id}?`,
+    message: `
+      <p style="font-size:12.5px;line-height:1.5;margin:0 0 10px">Confirmar que a troca está apta a seguir pra separação? Esta ação libera o pedido <strong>${ped.id}</strong> no kanban de logística.</p>
+      <div style="padding:10px 12px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;font-size:11.5px;line-height:1.5">
+        <strong>Tipo:</strong> ${t.tipo === 'garantia' ? 'Garantia' : 'Comercial'}<br>
+        <strong>Cliente:</strong> ${escapeHtml(t.cliente)}<br>
+        ${t.creditoGeradoId ? `<strong>Crédito gerado:</strong> ${t.creditoGeradoId} (1 ano de validade)<br>` : ''}
+        <strong>Motivo:</strong> ${escapeHtml(t.motivo||'—')}
+      </div>
+    `,
+    html: true,
+    onConfirm: () => {
+      const agora = new Date().toISOString();
+      const usuario = getUsuarioAtualNome();
+      ped.validadoEm = agora;
+      ped.validadoPor = usuario;
+      ped.financeiroAprovadoEm = agora;  // libera o fluxo de separação (reusa flag existente)
+      delete ped.requerValidacaoTroca;
+      adicionarTimelinePedido(ped, 'Troca validada', `Liberada pra separação por ${usuario} · tipo ${t.tipo}`);
+      t.historico = t.historico || [];
+      t.historico.push({ data: agora, evento: 'Troca validada', detalhe: `Pedido ${ped.id} liberado pra separação`, usuario });
+      saveDB();
+      toast(`Troca ${t.id} validada · ${ped.id} entrou na separação`, 'success');
+      renderPage(currentPage);
+    }
+  });
+}
+
 function editarTroca(trocaId) {
   if (!isUsuarioAdmin()) { toast('Apenas administradores podem editar trocas', 'danger'); return; }
   const t = (DB.trocas||[]).find(x => x.id === trocaId);
@@ -27841,14 +29293,26 @@ function renderTrocasLista(parent) {
 
   const garantias = DB.trocas.filter(t => t.tipo === 'garantia');
   const comerciais = DB.trocas.filter(t => t.tipo === 'comercial');
-  const aguardando = DB.trocas.filter(t => t.status === 'Aguardando recebimento').length;
+  // Trocas cujo pedido novo ainda aguarda validação manual (caminho fora do Financeiro)
+  const aguardandoValidacao = DB.trocas.filter(t => {
+    if (!t.pedidoGeradoId) return false;
+    const ped = (DB.pedidos||[]).find(x => x.id === t.pedidoGeradoId);
+    return ped && ped.requerValidacaoTroca && !ped.validadoEm;
+  }).length;
+  // Trocas cujo pedido novo aguarda Financeiro aprovar (caminho com cobrança)
+  const aguardandoFinanc = DB.trocas.filter(t => {
+    if (!t.pedidoGeradoId) return false;
+    const ped = (DB.pedidos||[]).find(x => x.id === t.pedidoGeradoId);
+    return ped && ped.requerAprovFinanc && !ped.financeiroAprovadoEm;
+  }).length;
 
   appendHTML(parent, `
     <div class="kpi-grid">
       <div class="kpi"><div class="kpi-lbl">Total</div><div class="kpi-val">${DB.trocas.length}</div></div>
       <div class="kpi"><div class="kpi-lbl">Garantia</div><div class="kpi-val">${garantias.length}</div><div class="kpi-sub">não impactam faturamento</div></div>
       <div class="kpi"><div class="kpi-lbl">Comercial</div><div class="kpi-val">${comerciais.length}</div><div class="kpi-sub">só diferença entra no financeiro</div></div>
-      <div class="kpi"><div class="kpi-lbl">Aguardando recebimento</div><div class="kpi-val">${aguardando}</div><div class="kpi-sub">prestação de contas pendente</div></div>
+      <div class="kpi"><div class="kpi-lbl">Aguardando validação</div><div class="kpi-val">${aguardandoValidacao}</div><div class="kpi-sub">não passa pelo Financeiro</div></div>
+      <div class="kpi"><div class="kpi-lbl">Aguardando Financeiro</div><div class="kpi-val">${aguardandoFinanc}</div><div class="kpi-sub">cliente paga diferença</div></div>
     </div>
   `);
 
@@ -27859,42 +29323,319 @@ function renderTrocasLista(parent) {
     return;
   }
 
+  // Estado de filtros persistido entre renders
+  if (!window._trocasFiltros) {
+    window._trocasFiltros = { busca:'', dataIni:'', dataFim:'', consultor:'', responsavel:'' };
+  }
+  const F = window._trocasFiltros;
+
+  // Pré-computa consultor por pedido (lookup) e listas únicas pros dropdowns
+  const pedidoMap = new Map((DB.pedidos||[]).map(p => [p.id, p]));
+  const enriched = DB.trocas.map(t => {
+    const ped = pedidoMap.get(t.pedidoId);
+    return {
+      t,
+      consultor: ped?.consultor || ped?.vendedor || '',
+      responsavel: t.criadoPor || '',
+      cliente: t.cliente || '',
+      clienteId: t.clienteId || '',
+    };
+  });
+  const consultores = [...new Set(enriched.map(e => e.consultor).filter(Boolean))].sort();
+  const responsaveis = [...new Set(enriched.map(e => e.responsavel).filter(Boolean))].sort();
+
+  // Filtros UI
+  const filtrosCount = [F.busca, F.dataIni, F.dataFim, F.consultor, F.responsavel].filter(Boolean).length;
   appendHTML(parent, `
+    <div class="filters-bar filters-bar-compact" style="margin-top:14px">
+      <div class="filters-search-wrap">
+        <span class="filters-search-icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span>
+        <input type="text" class="filters-search" id="troca-search" placeholder="Buscar por Nº da troca, cliente, CPF ou CNPJ..." value="${escapeHtml(F.busca)}">
+      </div>
+      <button type="button" class="btn-filters" id="troca-filters-btn">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+        <span>Filtros</span>
+        ${filtrosCount > 0 ? `<span class="btn-filters-count">${filtrosCount}</span>` : ''}
+      </button>
+    </div>
+
+    <div id="troca-filters-popover" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px;margin-top:8px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500;display:block;margin-bottom:4px">Data de · até</label>
+          <div style="display:flex;gap:6px">
+            <input type="date" class="fp-input" id="troca-data-ini" value="${F.dataIni}" style="font-size:12px">
+            <input type="date" class="fp-input" id="troca-data-fim" value="${F.dataFim}" style="font-size:12px">
+          </div>
+        </div>
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500;display:block;margin-bottom:4px">Consultor (do pedido)</label>
+          <select class="fp-select" id="troca-consultor" style="font-size:12px">
+            <option value="">Todos</option>
+            ${consultores.map(c => `<option value="${escapeHtml(c)}" ${F.consultor===c?'selected':''}>${escapeHtml(c)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500;display:block;margin-bottom:4px">Responsável pela troca</label>
+          <select class="fp-select" id="troca-responsavel" style="font-size:12px">
+            <option value="">Todos</option>
+            ${responsaveis.map(r => `<option value="${escapeHtml(r)}" ${F.responsavel===r?'selected':''}>${escapeHtml(r)}</option>`).join('')}
+          </select>
+        </div>
+        <div style="display:flex;align-items:flex-end;gap:6px">
+          <button class="btn btn-secondary btn-sm" id="troca-filtros-limpar" style="font-size:11.5px">Limpar filtros</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="troca-result"></div>
+  `);
+
+  // Bindings — filtros e busca
+  function aplicar() { renderPage(currentPage); }
+  const buscaInp = document.getElementById('troca-search');
+  let _timer;
+  buscaInp.oninput = () => {
+    clearTimeout(_timer);
+    _timer = setTimeout(() => { F.busca = buscaInp.value.trim(); aplicar(); }, 250);
+  };
+  document.getElementById('troca-filters-btn').onclick = () => {
+    const pop = document.getElementById('troca-filters-popover');
+    pop.style.display = pop.style.display === 'none' ? 'block' : 'none';
+  };
+  document.getElementById('troca-data-ini').onchange = (e) => { F.dataIni = e.target.value; aplicar(); };
+  document.getElementById('troca-data-fim').onchange = (e) => { F.dataFim = e.target.value; aplicar(); };
+  document.getElementById('troca-consultor').onchange = (e) => { F.consultor = e.target.value; aplicar(); };
+  document.getElementById('troca-responsavel').onchange = (e) => { F.responsavel = e.target.value; aplicar(); };
+  document.getElementById('troca-filtros-limpar').onclick = () => {
+    window._trocasFiltros = { busca:'', dataIni:'', dataFim:'', consultor:'', responsavel:'' };
+    aplicar();
+  };
+
+  // Aplica filtros
+  const buscaLc = (F.busca||'').toLowerCase();
+  const filtradas = enriched.filter(({t, consultor, responsavel, cliente, clienteId}) => {
+    if (buscaLc) {
+      const cli = DB.clientes.find(c => c.id === clienteId);
+      const docCli = (cli?.cpf || cli?.cnpj || cli?.doc || '').replace(/\D/g,'');
+      const buscaDigits = buscaLc.replace(/\D/g,'');
+      const hit =
+        t.id.toLowerCase().includes(buscaLc) ||
+        cliente.toLowerCase().includes(buscaLc) ||
+        (buscaDigits && docCli.includes(buscaDigits));
+      if (!hit) return false;
+    }
+    if (F.dataIni && (t.criadoEm||'').slice(0,10) < F.dataIni) return false;
+    if (F.dataFim && (t.criadoEm||'').slice(0,10) > F.dataFim) return false;
+    if (F.consultor && consultor !== F.consultor) return false;
+    if (F.responsavel && responsavel !== F.responsavel) return false;
+    return true;
+  });
+
+  const result = document.getElementById('troca-result');
+  if (filtradas.length === 0) {
+    result.innerHTML = `
+      <div class="card" style="margin-top:14px">
+        <div class="card-body" style="text-align:center;padding:32px;color:var(--muted);font-size:12.5px">
+          Nenhuma troca corresponde aos filtros aplicados.
+        </div>
+      </div>`;
+    return;
+  }
+
+  result.innerHTML = `
     <div class="card" style="margin-top:14px">
       <div class="card-body flush">
+        <div style="padding:8px 14px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border)">${filtradas.length} de ${DB.trocas.length} troca(s)</div>
         <div class="table-wrap">
           <table class="tbl">
             <thead><tr>
-              <th>Nº TROCA</th><th>Pedido origem</th><th>Cliente</th><th>Tipo</th>
-              <th>Item original → novo</th><th class="num">Diferença</th><th>Status</th><th>Data</th><th class="acoes-col"></th>
+              <th>Nº TROCA</th><th>Pedido</th><th>Cliente</th><th>Consultor</th><th>Responsável</th><th>Tipo</th>
+              <th>Item original</th><th>Item novo</th><th class="num">Diferença</th><th>Status</th><th>Data</th><th class="acoes-col"></th>
             </tr></thead>
             <tbody>
-              ${[...DB.trocas].reverse().map(t => `
+              ${[...filtradas].reverse().map(({t, consultor, responsavel}) => {
+                // Status do pedido gerado pela troca (caminho de aprovação)
+                const pedGer = t.pedidoGeradoId ? (DB.pedidos||[]).find(x => x.id === t.pedidoGeradoId) : null;
+                let statusPedidoChip = '';
+                if (pedGer) {
+                  if (pedGer.requerAprovFinanc && !pedGer.financeiroAprovadoEm) {
+                    statusPedidoChip = `<div style="margin-top:3px"><span style="font-size:9.5px;color:#1E4F8F;background:#1E4F8F10;border:1px solid #1E4F8F40;border-radius:3px;padding:1px 6px;letter-spacing:.04em;text-transform:uppercase;font-weight:500">Aguarda Financeiro</span></div>`;
+                  } else if (pedGer.requerValidacaoTroca && !pedGer.validadoEm) {
+                    statusPedidoChip = `<div style="margin-top:3px"><span style="font-size:9.5px;color:#9A6A0A;background:#9A6A0A10;border:1px solid #9A6A0A40;border-radius:3px;padding:1px 6px;letter-spacing:.04em;text-transform:uppercase;font-weight:500">Aguarda validação</span></div>`;
+                  } else if (pedGer.financeiroAprovadoEm) {
+                    statusPedidoChip = `<div style="margin-top:3px"><span style="font-size:9.5px;color:#1D9E75;background:#1D9E7510;border:1px solid #1D9E7540;border-radius:3px;padding:1px 6px;letter-spacing:.04em;text-transform:uppercase;font-weight:500">Liberado</span></div>`;
+                  }
+                }
+                const precisaValidar = pedGer && pedGer.requerValidacaoTroca && !pedGer.validadoEm;
+                return `
                 <tr>
                   <td><strong style="font-size:12.5px">${t.id}</strong></td>
                   <td><span style="color:var(--info);cursor:pointer" onclick="abrirPedidoTimeline('${t.pedidoId}')">${t.pedidoId}</span></td>
                   <td>${escapeHtml(t.cliente)}</td>
-                  <td><span class="badge" style="background:${t.tipo==='garantia'?'#2E7D3215':'#1E4F8F15'};color:${t.tipo==='garantia'?'#2E7D32':'#1E4F8F'};font-size:10.5px">${t.tipo === 'garantia' ? 'Garantia' : 'Comercial'}</span></td>
-                  <td style="font-size:11.5px">
-                    <div>${escapeHtml(t.itemOriginal.nome||'—')} <span style="color:var(--muted)">→</span> ${escapeHtml(t.itemNovo.nome||'—')}</div>
-                  </td>
+                  <td style="font-size:11.5px;color:var(--ink-2)">${escapeHtml(consultor||'—')}</td>
+                  <td style="font-size:11.5px;color:var(--ink-2)">${escapeHtml(responsavel||'—')}</td>
+                  <td><span class="badge" style="background:${t.tipo==='garantia'?'#1D9E7515':'#1E4F8F15'};color:${t.tipo==='garantia'?'#1D9E75':'#1E4F8F'};font-size:10.5px">${t.tipo === 'garantia' ? 'Garantia' : 'Comercial'}</span></td>
+                  <td style="font-size:11.5px">${escapeHtml(t.itemOriginal.nome||'—')}</td>
+                  <td style="font-size:11.5px">${escapeHtml(t.itemNovo.nome||'—')}</td>
                   <td class="num num-strong" style="color:${t.diferenca>0?'#1E4F8F':t.diferenca<0?'#9A6A0A':'var(--muted)'}">${t.diferenca>0?'+':''}${brl(t.diferenca)}</td>
-                  <td><span class="badge" style="background:var(--surface-2);color:var(--ink-2);font-size:10.5px">${t.status}</span></td>
+                  <td>
+                    <span class="badge" style="background:var(--surface-2);color:var(--ink-2);font-size:10.5px">${t.status}</span>
+                    ${statusPedidoChip}
+                  </td>
                   <td class="num" style="font-size:11px;color:var(--muted)">${new Date(t.criadoEm).toLocaleDateString('pt-BR')}</td>
                   <td>
                     <div class="orc-acoes-icons">
+                      ${precisaValidar && isUsuarioAdmin() ? `<button class="orc-acao" onclick="validarTroca('${t.id}')" title="Validar troca · libera pra separação" style="color:#1D9E75"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></button>` : ''}
+                      <button class="orc-acao" onclick="gerarPDFTroca('${t.id}')" title="PDF da troca">${ICONS['file-text']||ICONS.download||'📄'}</button>
                       ${isUsuarioAdmin() ? `<button class="orc-acao" onclick="editarTroca('${t.id}')" title="Editar troca">${ICONS.edit||'✎'}</button>` : ''}
                       ${isUsuarioAdmin() ? `<button class="orc-acao" onclick="excluirTroca('${t.id}')" title="Excluir troca" style="color: var(--danger)">${ICONS.trash||''}</button>` : ''}
                     </div>
                   </td>
                 </tr>
-              `).join('')}
+                `;
+              }).join('')}
             </tbody>
           </table>
         </div>
       </div>
     </div>
-  `);
+  `;
+}
+
+// ============ PDF DA TROCA ============
+function gerarPDFTroca(trocaId) {
+  const t = (DB.trocas||[]).find(x => x.id === trocaId);
+  if (!t) { toast('Troca não encontrada', 'danger'); return; }
+  const ped = (DB.pedidos||[]).find(p => p.id === t.pedidoId);
+  const cli = (DB.clientes||[]).find(c => c.id === t.clienteId) || {};
+  const doc = cli.cpf || cli.cnpj || cli.doc || '—';
+  const consultor = ped?.consultor || ped?.vendedor || '—';
+  const responsavel = t.criadoPor || '—';
+  const dataEm = new Date(t.criadoEm).toLocaleDateString('pt-BR');
+  const tipoLabel = t.tipo === 'garantia' ? 'Troca por garantia' : 'Troca';
+  const dif = Number(t.diferenca||0);
+
+  const html = `<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>${t.id} · ${tipoLabel}</title>
+<style>
+  @page { size: A4; margin: 14mm; }
+  body { font-family: 'Unbounded', system-ui, sans-serif; color: #0F172A; margin:0; padding:0; font-size: 12px; -webkit-font-smoothing: antialiased; }
+  .toolbar { display:flex;gap:8px;padding:10px 14px;border-bottom:1px solid #E5E7EB;background:#F4F6F8 }
+  .toolbar button { padding:8px 14px;border:1px solid #0F172A;background:#0F172A;color:#fff;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit }
+  .toolbar button.sec { background:#fff;color:#0F172A }
+  @media print { .toolbar { display:none } body { background:#fff } }
+  .doc { max-width: 180mm; margin: 0 auto; padding: 14mm 8mm }
+  /* Header: logo grande à esquerda · título da troca à direita */
+  .doc-head { display:flex; align-items:flex-start; justify-content:space-between; gap: 18mm; margin-bottom: 4mm; padding-bottom: 14px; border-bottom: 1px solid #E5E7EB }
+  .doc-logo { font-family:'Unbounded', sans-serif; font-weight: 300; font-size: 30px; letter-spacing: 0.14em; text-transform: uppercase; color: #000; line-height: 1 }
+  .doc-logo sup { font-size: 0.36em; font-weight: 300; vertical-align: top; top: 0.1em; position: relative; margin-left: 2px }
+  .doc-head-right { text-align: right }
+  .doc-head-right h1 { font-weight: 200; font-size: 26px; letter-spacing: -0.02em; margin: 0; line-height: 1.1 }
+  .doc-head-meta { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color:#64748B; margin-top: 6px; letter-spacing: 0.02em }
+  .eyebrow { font-size: 10px; letter-spacing: 0.18em; font-weight: 500; text-transform: uppercase; color:#64748B; margin: 22px 0 6px }
+  hr { border:0;border-top:1px solid #E5E7EB;margin: 18px 0 }
+  .grid2 { display:grid;grid-template-columns:1fr 1fr;gap:12px 24px }
+  .grid3 { display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px 16px }
+  .grid4 { display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px 16px }
+  .field { font-size: 12px; line-height:1.45 }
+  .field .lbl { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.06em; color:#64748B; font-weight:500; margin-bottom:2px }
+  .field .val { font-weight:500 }
+  table { width: 100%; border-collapse: collapse; font-size: 11.5px }
+  table th { text-align:left; padding: 8px 6px; border-bottom:1px solid #0F172A; font-weight:500; font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:#64748B }
+  table td { padding: 8px 6px; border-bottom:1px solid #E5E7EB }
+  .num { text-align:right; font-family: 'JetBrains Mono', monospace }
+  .diff-box { padding: 14px 16px; background:#F4F6F8; border:1px solid #E5E7EB; border-radius:8px; margin-top:14px }
+  .diff-line { display:flex; justify-content:space-between; align-items:center; font-size:12px; padding:4px 0 }
+  .diff-total { border-top: 1px dashed #E5E7EB; margin-top:4px; padding-top:8px; font-size:14px; font-weight:500 }
+  .sign-line { border-top:1px solid #0F172A; padding-top:6px; font-size:10.5px; color:#64748B; text-align:center; letter-spacing:.04em; text-transform:uppercase; font-weight:500 }
+</style></head>
+<body>
+  <div class="toolbar">
+    <button onclick="window.print()">Imprimir / Salvar PDF</button>
+    <button class="sec" onclick="window.close()">Fechar</button>
+  </div>
+  <div class="doc">
+
+    <!-- Header: logo grande à esquerda, título à direita -->
+    <div class="doc-head">
+      <div class="doc-logo">LUMENTECH<sup>®</sup></div>
+      <div class="doc-head-right">
+        <h1>${escapeHtml(tipoLabel)}</h1>
+        <div class="doc-head-meta">${escapeHtml(t.id)} · ${escapeHtml(dataEm)}</div>
+      </div>
+    </div>
+
+    <div class="eyebrow">Cliente</div>
+    <div class="grid2">
+      <div class="field"><div class="lbl">Nome / Razão</div><div class="val">${escapeHtml(t.cliente||'—')}</div></div>
+      <div class="field"><div class="lbl">CPF / CNPJ</div><div class="val">${escapeHtml(doc)}</div></div>
+    </div>
+
+    <div class="eyebrow">Pedido de origem</div>
+    <div class="grid3">
+      <div class="field"><div class="lbl">Pedido</div><div class="val">${escapeHtml(t.pedidoId||'—')}</div></div>
+      <div class="field"><div class="lbl">Consultor</div><div class="val">${escapeHtml(consultor)}</div></div>
+      <div class="field"><div class="lbl">Responsável (troca)</div><div class="val">${escapeHtml(responsavel)}</div></div>
+    </div>
+
+    <div class="eyebrow">Item devolvido</div>
+    <table>
+      <thead><tr><th>Produto</th><th>SKU</th><th class="num">Qtd</th><th class="num">Valor un.</th><th class="num">Valor pago</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>${escapeHtml(t.itemOriginal?.nome||'—')}</td>
+          <td style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#64748B">${escapeHtml(t.itemOriginal?.sku||'—')}</td>
+          <td class="num">${t.itemOriginal?.qtd||0}</td>
+          <td class="num">${brl(t.itemOriginal?.valor||0)}</td>
+          <td class="num">${brl(t.itemOriginal?.valorPago||0)}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="eyebrow">Item substituto</div>
+    <table>
+      <thead><tr><th>Produto</th><th>SKU</th><th class="num">Qtd</th><th class="num">Valor un.</th><th class="num">Subtotal</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>${escapeHtml(t.itemNovo?.nome||'—')}</td>
+          <td style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#64748B">${escapeHtml(t.itemNovo?.sku||'—')}</td>
+          <td class="num">${t.itemNovo?.qtd||0}</td>
+          <td class="num">${brl(t.itemNovo?.valor||0)}</td>
+          <td class="num">${brl((t.itemNovo?.valor||0)*(t.itemNovo?.qtd||0))}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="diff-box">
+      <div class="diff-line"><span style="color:#64748B">Valor pago (item original)</span><span class="num">${brl(t.itemOriginal?.valorPago||0)}</span></div>
+      <div class="diff-line"><span style="color:#64748B">Valor item substituto</span><span class="num">${brl((t.itemNovo?.valor||0)*(t.itemNovo?.qtd||0))}</span></div>
+      <div class="diff-line diff-total"><span>${dif>0.5?'Diferença a cobrar':dif<-0.5?'Crédito gerado pro cliente':'Sem diferença'}</span><span class="num" style="color:${dif>0.5?'#1E4F8F':dif<-0.5?'#9A6A0A':'#64748B'}">${dif>0.5?'+ ':''}${brl(Math.abs(dif))}</span></div>
+      ${dif > 0.5 ? `<div style="font-size:10.5px;color:#64748B;margin-top:6px;text-align:right">Forma: ${escapeHtml(t.formaPagamentoDif||'—')}</div>` : ''}
+    </div>
+
+    ${t.orcamentoGeradoId || t.pedidoGeradoId ? `
+      <div class="eyebrow">Documentos gerados</div>
+      <div class="grid4">
+        ${t.orcamentoGeradoId ? `<div class="field"><div class="lbl">Orçamento</div><div class="val">${escapeHtml(t.orcamentoGeradoId)}</div></div>` : ''}
+        ${t.pedidoGeradoId ? `<div class="field"><div class="lbl">Pedido novo</div><div class="val">${escapeHtml(t.pedidoGeradoId)}</div></div>` : ''}
+        ${t.creditoGeradoId ? `<div class="field"><div class="lbl">Crédito</div><div class="val">${escapeHtml(t.creditoGeradoId)}</div></div>` : ''}
+      </div>
+    ` : ''}
+
+    <!-- Assinaturas -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20mm;margin-top:40mm">
+      <div><div class="sign-line">Assinatura do cliente</div></div>
+      <div><div class="sign-line">Assinatura do responsável</div></div>
+    </div>
+
+  </div>
+</body></html>`;
+
+  const w = window.open('', '_blank', 'width=900,height=1200');
+  if (!w) { toast('Bloqueador de popup ativado · permita popups pra gerar o PDF', 'danger'); return; }
+  w.document.write(html);
+  w.document.close();
 }
 
 function renderDevolucoesLista(parent) {
@@ -28364,6 +30105,70 @@ function renderLogisticaSubmenu(parent, modo) {
   // KPIs específicos por modo
   appendHTML(parent, renderKPIsLogistica(modo));
 
+  // Estado dos filtros (persistido por modo)
+  if (!window._logFiltros) window._logFiltros = {};
+  if (!window._logFiltros[modo]) window._logFiltros[modo] = { busca:'', consultor:'', tipoEntrega:'', dataIni:'', dataFim:'' };
+  const F = window._logFiltros[modo];
+
+  // Opções únicas pros dropdowns (consultor e tipo de entrega)
+  const pedidosBase = DB.pedidos.filter(p => !p.canceladoEm);
+  const consultoresSet = new Set();
+  const tiposSet = new Set();
+  pedidosBase.forEach(p => {
+    const orc = DB.orcamentos.find(o => o.id === p.orcamentoId);
+    const cons = p.consultor || orc?.consultor || p.vendedor || orc?.vendedor || '';
+    if (cons) consultoresSet.add(cons);
+    const tipo = p.envio?.tipo || orc?.envio?.tipo || '';
+    if (tipo) tiposSet.add(tipo);
+  });
+  const consultores = [...consultoresSet].sort();
+  const tiposEntrega = [...tiposSet].sort();
+  const filtrosCount = [F.busca, F.consultor, F.tipoEntrega, F.dataIni, F.dataFim].filter(Boolean).length;
+
+  // Barra de busca + filtros
+  appendHTML(parent, `
+    <div class="filters-bar filters-bar-compact" style="margin-top:14px">
+      <div class="filters-search-wrap">
+        <span class="filters-search-icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span>
+        <input type="text" class="filters-search" id="log-search-${modo}" placeholder="Buscar por pedido, cliente, ID do cliente ou Nº de separação..." value="${escapeHtml(F.busca)}">
+      </div>
+      <button type="button" class="btn-filters" id="log-filters-btn-${modo}">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+        <span>Filtros</span>
+        ${filtrosCount > 0 ? `<span class="btn-filters-count">${filtrosCount}</span>` : ''}
+      </button>
+    </div>
+
+    <div id="log-filters-popover-${modo}" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px;margin-top:8px">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500;display:block;margin-bottom:4px">Consultor</label>
+          <select class="fp-select" id="log-consultor-${modo}" style="font-size:12px">
+            <option value="">Todos</option>
+            ${consultores.map(c => `<option value="${escapeHtml(c)}" ${F.consultor===c?'selected':''}>${escapeHtml(c)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500;display:block;margin-bottom:4px">Tipo de entrega</label>
+          <select class="fp-select" id="log-tipo-${modo}" style="font-size:12px">
+            <option value="">Todos</option>
+            ${tiposEntrega.map(t => `<option value="${escapeHtml(t)}" ${F.tipoEntrega===t?'selected':''}>${escapeHtml(t)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500;display:block;margin-bottom:4px">Data do pedido</label>
+          <div style="display:flex;gap:6px">
+            <input type="date" class="fp-input" id="log-data-ini-${modo}" value="${F.dataIni}" style="font-size:12px;flex:1">
+            <input type="date" class="fp-input" id="log-data-fim-${modo}" value="${F.dataFim}" style="font-size:12px;flex:1">
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:10px;display:flex;justify-content:flex-end">
+        <button class="btn btn-secondary btn-sm" id="log-filtros-limpar-${modo}" style="font-size:11.5px">Limpar filtros</button>
+      </div>
+    </div>
+  `);
+
   // Toggle Kanban/Lista
   appendHTML(parent, `
     <div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 10px">
@@ -28378,6 +30183,30 @@ function renderLogisticaSubmenu(parent, modo) {
   const wrap = el('<div id="log-content"></div>');
   parent.appendChild(wrap);
   renderLogisticaConteudo(wrap, modo);
+
+  // Bindings — busca/filtros aplicam soft re-render do conteúdo
+  function aplicar() {
+    wrap.innerHTML = '';
+    renderLogisticaConteudo(wrap, modo);
+  }
+  const buscaInp = document.getElementById('log-search-'+modo);
+  let _t;
+  buscaInp.oninput = () => {
+    clearTimeout(_t);
+    _t = setTimeout(() => { F.busca = buscaInp.value.trim(); aplicar(); }, 220);
+  };
+  document.getElementById('log-filters-btn-'+modo).onclick = () => {
+    const pop = document.getElementById('log-filters-popover-'+modo);
+    pop.style.display = pop.style.display === 'none' ? 'block' : 'none';
+  };
+  document.getElementById('log-consultor-'+modo).onchange = (e) => { F.consultor = e.target.value; aplicar(); };
+  document.getElementById('log-tipo-'+modo).onchange = (e) => { F.tipoEntrega = e.target.value; aplicar(); };
+  document.getElementById('log-data-ini-'+modo).onchange = (e) => { F.dataIni = e.target.value; aplicar(); };
+  document.getElementById('log-data-fim-'+modo).onchange = (e) => { F.dataFim = e.target.value; aplicar(); };
+  document.getElementById('log-filtros-limpar-'+modo).onclick = () => {
+    window._logFiltros[modo] = { busca:'', consultor:'', tipoEntrega:'', dataIni:'', dataFim:'' };
+    renderPage(currentPage);
+  };
 
   document.querySelectorAll('.log-view-btn[data-modo="'+modo+'"]').forEach(btn => {
     btn.onclick = () => {
@@ -28447,9 +30276,50 @@ function colunasPorModo(modo) {
   return [];
 }
 
+// Aplica busca + filtros (consultor, tipoEntrega, data) da barra de filtros da logística
+function filtrarPedidosLog(pedidos, modo) {
+  const F = window._logFiltros?.[modo];
+  if (!F) return pedidos;
+  const buscaLc = (F.busca||'').toLowerCase();
+  const buscaDigits = buscaLc.replace(/\D/g,'');
+  return pedidos.filter(p => {
+    const orc = DB.orcamentos.find(o => o.id === p.orcamentoId);
+    // Busca livre — pedido, cliente, ID cliente, Nº de separação
+    if (buscaLc) {
+      const nSep = fmtNSep(p).toLowerCase();
+      const cli = (p.cliente||'').toLowerCase();
+      const idCli = (p.clienteId||'').toLowerCase();
+      const idCliClean = (p.clienteId||'').replace(/\D/g,'');
+      const pedId = (p.id||'').toLowerCase();
+      const pedIdClean = (p.id||'').replace(/\D/g,'');
+      const hit =
+        pedId.includes(buscaLc) ||
+        cli.includes(buscaLc) ||
+        idCli.includes(buscaLc) ||
+        nSep.includes(buscaLc) ||
+        (buscaDigits && (idCliClean.includes(buscaDigits) || pedIdClean.includes(buscaDigits)));
+      if (!hit) return false;
+    }
+    // Consultor
+    if (F.consultor) {
+      const cons = p.consultor || orc?.consultor || p.vendedor || orc?.vendedor || '';
+      if (cons !== F.consultor) return false;
+    }
+    // Tipo de entrega
+    if (F.tipoEntrega) {
+      const tipo = p.envio?.tipo || orc?.envio?.tipo || '';
+      if (tipo !== F.tipoEntrega) return false;
+    }
+    // Data do pedido (criadoEm)
+    if (F.dataIni && (p.criadoEm||'').slice(0,10) < F.dataIni) return false;
+    if (F.dataFim && (p.criadoEm||'').slice(0,10) > F.dataFim) return false;
+    return true;
+  });
+}
+
 function renderLogisticaKanban(wrap, modo) {
   const cols = colunasPorModo(modo);
-  const pedidos = DB.pedidos.filter(p => !p.canceladoEm);
+  const pedidos = filtrarPedidosLog(DB.pedidos.filter(p => !p.canceladoEm), modo);
   appendHTML(wrap, `
     <div class="card">
       <div class="card-body" style="padding:14px">
@@ -28485,7 +30355,7 @@ function renderLogisticaCard(p, etapaKey, modo) {
   const prioridade = p.prioridade || 'normal';
   const corPrio = prioridade === 'urgente' ? '#B0241F' : prioridade === 'alta' ? '#9A6A0A' : '#808080';
   const dataEntrega = p.dataEntrega ? isoToBR(p.dataEntrega) : '—';
-  const nSep = p.nSeparacao || `SEP-${p.id.replace('PED-','')}`;
+  const nSep = fmtNSep(p);
   const responsavel = p.responsavelLog || '';
   const local = p.localArmazenamento || '';
 
@@ -28515,6 +30385,30 @@ function renderLogisticaCard(p, etapaKey, modo) {
     }
   }
 
+  // Badge de origem (Troca / Troca garantia / Devolução) — mesmas cores da lista de pedidos
+  let badgeOrigem = '';
+  {
+    let tag = p.tagOrigem;
+    if (!tag && p.origemTrocaId) {
+      const tr = (DB.trocas||[]).find(t => t.id === p.origemTrocaId);
+      tag = tr?.tipo === 'garantia' ? 'Troca garantia' : 'Troca';
+    }
+    if (!tag && p.origemDevolucaoId) tag = 'Devolução';
+    if (tag) {
+      let cor = '#1E4F8F';
+      if (tag === 'Troca garantia') cor = '#BA7517';
+      else if (tag === 'Devolução')  cor = '#B0241F';
+      badgeOrigem = `<div style="display:inline-block;margin-bottom:4px;color:${cor};font-size:9.5px;font-weight:500;letter-spacing:.05em;text-transform:uppercase;padding:1px 7px;border:1px solid ${cor}55;border-radius:3px;background:${cor}10">${escapeHtml(tag)}</div>`;
+    }
+  }
+
+  // Data/hora em que o pedido entrou em separação (= aprovação do financeiro,
+  // que é o gatilho que joga o pedido em "Aguardando separação").
+  const entrouEm = p.financeiroAprovadoEm || p.criadoEm;
+  const entrouFmt = entrouEm
+    ? new Date(entrouEm).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' })
+    : '—';
+
   // Função do card: sempre abre sidepanel (estilo CRM). Sem botão de ação no card — tudo dentro do sidepanel.
   return `
     <div class="logistica-card log-card-full" onclick="abrirSidepanelSeparacao('${p.id}')">
@@ -28528,14 +30422,28 @@ function renderLogisticaCard(p, etapaKey, modo) {
       <div class="logistica-card-cli">${escapeHtml(p.cliente)}</div>
       <div style="font-size:10px;color:var(--muted);margin-bottom:3px">${cidade ? escapeHtml(cidade)+(uf?' / '+escapeHtml(uf):'') : ''}</div>
       <div style="font-size:10px;color:var(--muted);margin-bottom:6px">${escapeHtml(transp)}${dataEntrega!=='—'?` · entrega ${dataEntrega}`:''}</div>
+      ${badgeOrigem}
       ${badgeVinculo}
       ${badgePendencia}
       ${badgeEtapa}
+      <div style="font-size:9.5px;color:var(--muted);margin-bottom:6px;letter-spacing:.02em">${entrouFmt}</div>
       <div class="logistica-card-foot">
         <span class="logistica-card-val">${brl(p.valor)}</span>
-        <button class="btn-mini-icon" onclick="event.stopPropagation();gerarPDFRomaneio('${p.id}')" title="Imprimir romaneio">
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg>
-        </button>
+        <div style="display:inline-flex;gap:4px;align-items:center">
+          ${p.entregueEm && p.entregaConfirmacao ? `
+            <button class="btn-mini-icon" onclick="event.stopPropagation();abrirComprovanteEntrega('${p.id}')" title="Ver comprovante de entrega" style="color:#1D9E75">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            </button>
+          ` : ''}
+          <button class="btn-mini-icon" onclick="event.stopPropagation();gerarPDFRomaneio('${p.id}')" title="Imprimir romaneio">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg>
+          </button>
+          ${isUsuarioAdmin() ? `
+            <button class="btn-mini-icon" onclick="event.stopPropagation();excluirPedidoConfirm('${p.id}')" title="Excluir pedido (admin)" style="color:#B0241F">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+          ` : ''}
+        </div>
       </div>
     </div>
   `;
@@ -28575,7 +30483,7 @@ function abrirSidepanelSeparacao(pedidoId) {
     const uf = p.envio?.uf || orc?.envio?.uf || (DB.clientes.find(c => c.id === p.clienteId)?.uf) || '';
     const transp = p.envio?.transportadora || orc?.envio?.transportadora || p.envio?.tipo || 'Retirada';
     const dataEntrega = p.dataEntrega ? isoToBR(p.dataEntrega) : '—';
-    const nSep = p.nSeparacao || `SEP-${p.id.replace('PED-','')}`;
+    const nSep = fmtNSep(p);
     const prio = p.prioridade || 'normal';
     const corPrio = prio === 'urgente' ? '#B0241F' : prio === 'alta' ? '#9A6A0A' : '#808080';
 
@@ -29049,14 +30957,10 @@ function abrirSidepanelSeparacao(pedidoId) {
     // Marcar como entregue (apenas para Retirada/Outros — pedidos que não passam por Expedição)
     const btnEntregue = page.querySelector('#sep-marcar-entregue');
     if (btnEntregue) btnEntregue.onclick = () => {
-      confirmAction({
-        title: 'Marcar pedido como entregue?',
-        message: `<p>Confirmar que o pedido <strong>${p.id}</strong> foi <strong>retirado/entregue ao cliente</strong>?</p><p style="font-size:11.5px;color:var(--muted);margin-top:8px">Esta ação finaliza o pedido no fluxo de logística.</p>`,
-        onConfirm: () => {
-          marcarPedidoEntregueSep(p.id);
-          renderConteudo();
-          _swapKanban();
-        }
+      abrirModalFinalizarEntrega(p, (dados) => {
+        marcarPedidoEntregueSep(p.id, dados);
+        renderConteudo();
+        _swapKanban();
       });
     };
   }
@@ -29111,7 +31015,7 @@ function assumirSeparacao(pedidoId) {
   p.responsavelLog = usuario;
   _logRegistrar(p, 'Separação assumida', `Separador: ${usuario}`, 'assumido');
   saveDB();
-  toast(`Separação ${p.nSeparacao||p.id} assumida por ${usuario}`, 'success');
+  toast(`Separação ${fmtNSep(p)} assumida por ${usuario}`, 'success');
 }
 
 function confirmarSeparacao(pedidoId) {
@@ -29621,20 +31525,24 @@ function salvarLocalArmazenado(pedidoId, local) {
 }
 
 // Marca pedido como Entregue diretamente da etapa Armazenado (Retirada/Outros — sem passar por Expedição)
-function marcarPedidoEntregueSep(pedidoId) {
+function marcarPedidoEntregueSep(pedidoId, dados) {
   const p = DB.pedidos.find(x => x.id === pedidoId);
   if (!p) return;
   p.entregueEm = new Date().toISOString();
   if (!p.armazenadoEm) p.armazenadoEm = new Date().toISOString();
+  if (dados) {
+    p.entregaConfirmacao = { ...dados, confirmadoPor: getUsuarioAtualNomeOu('Sistema') };
+  }
   const tipoEnt = _pedidoTipoEntrega(p) || 'Retirada';
-  _logRegistrar(p, 'Pedido entregue ao cliente', `Tipo: ${tipoEnt}`, 'entregue');
+  const detalhe = dados ? `Tipo: ${tipoEnt} · ${dados.fotosProdutos.length} foto(s) + NF + assinatura${dados.obs?` · obs: ${dados.obs}`:''}` : `Tipo: ${tipoEnt}`;
+  _logRegistrar(p, 'Pedido entregue ao cliente', detalhe, 'entregue');
   saveDB();
   toast(`Pedido ${p.id} marcado como entregue`, 'success');
 }
 
 function renderLogisticaLista(wrap, modo) {
   const cols = colunasPorModo(modo);
-  const pedidos = DB.pedidos.filter(p => !p.canceladoEm && cols.some(c => calcularEtapaLogistica(p) === c.key));
+  const pedidos = filtrarPedidosLog(DB.pedidos.filter(p => !p.canceladoEm && cols.some(c => calcularEtapaLogistica(p) === c.key)), modo);
   if (pedidos.length === 0) {
     const card = el('<div class="card"></div>');
     card.appendChild(emptyState('package', 'Nenhum pedido nesta etapa', 'Pedidos aparecem aqui quando entram no fluxo.', null));
@@ -29660,7 +31568,7 @@ function renderLogisticaLista(wrap, modo) {
                 const corP = prio === 'urgente' ? '#B0241F' : prio === 'alta' ? '#9A6A0A' : '#808080';
                 const dataE = p.dataEntrega ? isoToBR(p.dataEntrega) : '—';
                 const etapa = LOG_ETAPAS[calcularEtapaLogistica(p)] || { label:'—', cor:'#808080' };
-                const nSep = p.nSeparacao || `SEP-${p.id.replace('PED-','')}`;
+                const nSep = fmtNSep(p);
                 return `
                   <tr style="cursor:pointer" onclick="abrirPedidoTimeline('${p.id}')">
                     <td><strong style="font-size:11.5px">${nSep}</strong></td>
@@ -29674,7 +31582,11 @@ function renderLogisticaLista(wrap, modo) {
                     <td class="num" style="font-size:11px;color:var(--muted)">${dataE}</td>
                     <td>${_statusBadge(etapa.label, etapa.cor, etapa.desc)}</td>
                     <td class="num num-strong">${brl(p.valor)}</td>
-                    <td></td>
+                    <td onclick="event.stopPropagation()">
+                      ${p.entregueEm && p.entregaConfirmacao ? `
+                        <button class="btn-mini" onclick="abrirComprovanteEntrega('${p.id}')" title="Ver comprovante de entrega" style="background:#1D9E7515;color:#1D9E75;border:1px solid #1D9E7540;padding:3px 9px;border-radius:4px;font-size:10.5px;font-weight:500;cursor:pointer;letter-spacing:.04em;text-transform:uppercase">Comprovante</button>
+                      ` : ''}
+                    </td>
                   </tr>
                 `;
               }).join('')}
@@ -29947,7 +31859,7 @@ function renderLogisticaHistorico(parent) {
         }
         // Cria separação (gera nSeparacao automaticamente se ainda não houver)
         if (typeof criarSeparacaoSeNecessario === 'function') criarSeparacaoSeNecessario(p);
-        adicionarTimelinePedido(p, 'Financeiro aprovado', `Estoque reservado · ${p.nSeparacao || '—'} gerada · aguardando separação`);
+        adicionarTimelinePedido(p, 'Financeiro aprovado', `Estoque reservado · ${fmtNSep(p)} gerada · aguardando separação`);
         // À vista? marca contas a receber recebido pra liberar separação
         const orc = DB.orcamentos.find(o => o.id === p.orcamentoId);
         const formas = Array.isArray(orc?.pagamentos) ? orc.pagamentos : (orc?.pagamento ? [orc.pagamento] : []);
@@ -29957,7 +31869,7 @@ function renderLogisticaHistorico(parent) {
           adicionarTimelinePedido(p, 'Contas a receber: recebido', 'Pagamento à vista · separação liberada', 'Sistema');
         }
         saveDB();
-        toast(`Pedido ${p.id} aprovado · ${p.nSeparacao} · estoque reservado`, 'success');
+        toast(`Pedido ${p.id} aprovado · ${fmtNSep(p)} · estoque reservado`, 'success');
         renderPage(currentPage);
       }
     });
@@ -31677,14 +33589,19 @@ function marcarParadaEntregue(rotaId, pedidoId) {
   if (!r) return;
   const par = (r.paradas||[]).find(x => x.pedidoId === pedidoId);
   if (!par) return;
-  par.entregueEm = new Date().toISOString();
   const p = DB.pedidos.find(x => x.id === pedidoId);
-  if (p) { p.entregueEm = par.entregueEm; _logRegistrar(p, 'Parada entregue', `Rota ${r.id}`, 'entregue'); }
-  saveDB();
-  toast(`Pedido ${pedidoId} marcado como entregue`, 'success');
-  // Reabre o modal pra atualizar
-  document.querySelectorAll('.modal-overlay').forEach(m => m.remove());
-  abrirRotaDetalhe(rotaId);
+  if (!p) return;
+  // Abre modal de confirmação de entrega — exige foto produto, foto NF, assinatura
+  abrirModalFinalizarEntrega(p, (dados) => {
+    par.entregueEm = new Date().toISOString();
+    p.entregueEm = par.entregueEm;
+    p.entregaConfirmacao = { ...dados, confirmadoPor: getUsuarioAtualNomeOu('Sistema') };
+    _logRegistrar(p, 'Parada entregue', `Rota ${r.id} · ${dados.fotosProdutos.length} foto(s) + NF + assinatura${dados.obs?` · obs: ${dados.obs}`:''}`, 'entregue');
+    saveDB();
+    toast(`Pedido ${pedidoId} marcado como entregue`, 'success');
+    document.querySelectorAll('.modal-overlay').forEach(m => m.remove());
+    abrirRotaDetalhe(rotaId);
+  });
 }
 
 // =====================================================
@@ -31976,8 +33893,11 @@ const MENU_GRUPOS = [
   { tipo: 'item', id: 'producao',   label: 'Produção',         icon: 'cog' },
   { tipo: 'item', id: 'os',         label: 'Ordem de Serviço', icon: 'clipboard' },
   { tipo: 'separador', label: 'Administração' },
-  { tipo: 'item', id: 'produtos',   label: 'Produtos',          icon: 'box' },
-  { tipo: 'item', id: 'estoque',    label: 'Estoque',           icon: 'package' },
+  // Grupo ESTOQUE — Produtos vira submenu do estoque
+  { tipo: 'grupo', id: 'g_estoque', label: 'Estoque', icon: 'package', filhos: [
+    { id: 'produtos', label: 'Produtos',          icon: 'box' },
+    { id: 'estoque',  label: 'Controle de estoque', icon: 'package' },
+  ]},
   // Grupo SUPRIMENTOS
   { tipo: 'grupo', id: 'g_suprimentos', label: 'Suprimentos', icon: 'truck-2', filhos: [
     { id: 'sup-ordens-compra', label: 'Ordens de compra', icon: 'clipboard' },
@@ -35862,7 +37782,7 @@ function abrirModalRecebimentoCR(id) {
             if (typeof criarSeparacaoSeNecessario === 'function') {
               criarSeparacaoSeNecessario(pedido);
             }
-            adicionarTimelinePedido(pedido, 'Financeiro aprovado (auto)', `Pedido quitado · estoque reservado · ${pedido.nSeparacao||'separação'} criada · liberado para separação`, 'Sistema');
+            adicionarTimelinePedido(pedido, 'Financeiro aprovado (auto)', `Pedido quitado · estoque reservado · ${fmtNSep(pedido)} criada · liberado para separação`, 'Sistema');
           }
         }
       }
