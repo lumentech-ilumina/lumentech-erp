@@ -150,6 +150,7 @@
 <script src="js/db.js"></script>
 <script src="js/repo.js"></script>
 <script src="js/auth.js"></script>
+<script src="js/permissoes.js"></script>
 <script>
 const ICONS = {
   home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2h-4v-7H9v7H5a2 2 0 01-2-2z"/></svg>',
@@ -551,6 +552,18 @@ function countBadge(pageId) {
 }
 
 function navigate(pageId) {
+  // Gate de permissão: se o usuário não pode ver essa página, redireciona pra primeira acessível.
+  // Admin sempre passa. Failsafe: se permissoes.js não carregou ainda (caso raro durante boot),
+  // libera pra não travar o login.
+  if (window.permissoes && typeof window.permissoes.podeAcessarPagina === 'function') {
+    if (!window.permissoes.podeAcessarPagina(pageId)) {
+      const fallback = window.permissoes.primeiraPaginaAcessivel();
+      if (fallback && fallback !== pageId) {
+        if (typeof toast === 'function') toast('Você não tem acesso a essa área', 'danger');
+        pageId = fallback;
+      }
+    }
+  }
   currentPage = pageId;
   // Procura primeiro no MENU original, depois nos grupos
   let item = MENU.find(m => m.id === pageId);
@@ -39128,7 +39141,13 @@ function renderNavAgrupado() {
   // Sidebar começa com todos os grupos COLAPSADOS no load inicial.
   // _grupoAberto só é setado quando o usuário clica num grupo (toggleNavGrupo).
 
-  MENU_GRUPOS.forEach(entrada => {
+  // Filtra o menu pelas permissões do CURRENT_USER. Admin vê tudo; demais perfis
+  // só veem módulos com `ver: true`. Failsafe: se permissoes.js não carregou, mostra tudo.
+  const menuFiltrado = (window.permissoes && typeof window.permissoes.filtrarMenuPorPermissao === 'function')
+    ? window.permissoes.filtrarMenuPorPermissao(MENU_GRUPOS)
+    : MENU_GRUPOS;
+
+  menuFiltrado.forEach(entrada => {
     if (entrada.tipo === 'separador') {
       nav.appendChild(el(`<div class="sb-section-lbl">${escapeHtml(entrada.label)}</div>`));
       return;
