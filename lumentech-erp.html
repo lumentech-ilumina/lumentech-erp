@@ -2347,6 +2347,7 @@ function renderPedidos(parent) {
 }
 
 function openPedidoModal(id) {
+  if (typeof exigeAcesso === 'function' && !exigeAcesso('pedidos', id ? 'editar' : 'criar')) return;
   const editing = id ? DB.pedidos.find(p => p.id === id) : null;
   if (DB.clientes.length === 0) { toast('Cadastre um cliente primeiro', 'danger'); return; }
   const m = openModal({
@@ -3021,7 +3022,7 @@ function renderProducao(parent) {
         </div>
       </div>
     </div>
-    <button class="btn btn-primary btn-sm" onclick="abrirOPPage()">${ICONS.plus} Nova OP</button>`);
+    ${(window.gateBtn || ((m,a,h)=>h))('producao','criar',`<button class="btn btn-primary btn-sm" onclick="abrirOPPage()">${ICONS.plus} Nova OP</button>`)}`);
 
   // Bind do menu de engrenagem (configurações da produção)
   setTimeout(() => {
@@ -4352,6 +4353,7 @@ function _renderProdTimeline(parent, etapas) {
 function openOPModal(id) { return abrirOPPage(id); }
 
 function abrirOPPage(id) {
+  if (typeof exigeAcesso === 'function' && !exigeAcesso('producao', id ? 'editar' : 'criar')) return;
   // Se for OP existente, marca o id pra renderProducao mostrar a página de edição
   if (id && DB.ops.find(o => o.id === id)) {
     window._opPageEditing = id;
@@ -6091,6 +6093,7 @@ window.cadastroAction = function(idx) {
 };
 
 function openProdutoModal() {
+  if (typeof exigeAcesso === 'function' && !exigeAcesso('produtos', 'criar')) return;
   const m = openModal({
     title: 'Novo produto',
     body: `
@@ -8348,7 +8351,7 @@ function renderClientesSubpage() {
 // ============ DASHBOARD CRM ============
 function renderClientesDashboard(parent) {
   pageHead(parent, 'Painel de <em>clientes</em>', `${DB.clientes.length} cliente(s) cadastrado(s)`,
-    `<button class="btn btn-primary btn-sm" onclick="openClienteModalNovo()">${ICONS.plus} Novo cliente</button>`);
+    `${(window.gateBtn || ((m,a,h)=>h))('clientes','criar',`<button class="btn btn-primary btn-sm" onclick="openClienteModalNovo()">${ICONS.plus} Novo cliente</button>`)}`);
 
   if (DB.clientes.length === 0) {
     parent.appendChild(el('<div class="card"></div>')).appendChild(
@@ -8450,7 +8453,7 @@ function renderClientesLista(parent, tipoFiltro) {
   const filtrados = tipoFiltro ? DB.clientes.filter(c => c.tipo === tipoFiltro) : DB.clientes;
 
   pageHead(parent, titulo, `${filtrados.length} cliente(s)`,
-    `<button class="btn btn-primary btn-sm" onclick="openClienteModalNovo('${tipoFiltro||'PJ'}')">${ICONS.plus} Novo cadastro</button>`);
+    `${(window.gateBtn || ((m,a,h)=>h))('clientes','criar',`<button class="btn btn-primary btn-sm" onclick="openClienteModalNovo('${tipoFiltro||'PJ'}')">${ICONS.plus} Novo cadastro</button>`)}`);
 
   if (filtrados.length === 0) {
     const msgs = {
@@ -8645,6 +8648,7 @@ function openClienteModalNovo(tipo) {
 
 // ============ MODAL CADASTRO ============
 function openClienteModal(id, tipoForce) {
+  if (typeof exigeAcesso === 'function' && !exigeAcesso('clientes', id ? 'editar' : 'criar')) return;
   const editing = id ? DB.clientes.find(c => c.id === id) : null;
   const tipo = editing?.tipo || tipoForce || 'PF';
   const isPJ = tipo === 'PJ';
@@ -9905,7 +9909,7 @@ function renderOrcLista(parent, statusFilter, pageKey) {
     : DB.orcamentos;
 
   pageHead(parent, titulo, `${filtrados.length} orçamento(s)`,
-    `<button class="btn btn-primary btn-sm" onclick="abrirOrcamentoModal()" title="Novo orçamento" aria-label="Novo orçamento" style="padding:6px 10px;display:inline-flex;align-items:center;justify-content:center;line-height:1">${ICONS.plus}</button>`);
+    `${(window.gateBtn || ((m,a,h)=>h))('orcamentos','criar',`<button class="btn btn-primary btn-sm" onclick="abrirOrcamentoModal()" title="Novo orçamento" aria-label="Novo orçamento" style="padding:6px 10px;display:inline-flex;align-items:center;justify-content:center;line-height:1">${ICONS.plus}</button>`)}`);
 
   // Busca + Filtros SEMPRE renderizados (mesmo com lista vazia) — assim o usuário sempre
   // consegue trocar de tab e usar a busca. O popover é renderizado em seguida.
@@ -10422,6 +10426,7 @@ function orcamentosAtivosParaMetricas() {
 }
 
 function aprovarOrcamento(id) {
+  if (typeof exigeAcesso === 'function' && !exigeAcesso('orcamentos', 'aprovar')) return;
   const o = DB.orcamentos.find(x => x.id === id);
   if (!o) return;
   o.status = 'Aprovado';
@@ -10820,6 +10825,8 @@ let _orcPageEditing = null;  // orçamento sendo editado (null = novo)
 let _orcPageActive = false;  // se a página do form está ativa
 
 function abrirOrcamentoModal(id) {
+  // Gate de permissão: editar requer 'editar', criar requer 'criar'
+  if (typeof exigeAcesso === 'function' && !exigeAcesso('orcamentos', id ? 'editar' : 'criar')) return;
   if (DB.clientes.length === 0) {
     confirmAction({
       title: 'Cadastre um cliente primeiro',
@@ -23441,7 +23448,7 @@ function renderUsuDashboard(parent) {
 // ============ LISTA DE USUÁRIOS ============
 function renderUsuLista(parent) {
   pageHead(parent, 'Usuários', `${DB.usuarios.length} cadastrado(s)`,
-    `<button class="btn btn-primary btn-sm" onclick="abrirUsuarioModal()">${ICONS.plus} Novo usuário</button>`);
+    `${(window.gateBtn || ((m,a,h)=>h))('usuarios','criar',`<button class="btn btn-primary btn-sm" onclick="abrirUsuarioModal()">${ICONS.plus} Novo usuário</button>`)}`);
 
   parent.appendChild(el(`
     <div class="filters">
@@ -23523,6 +23530,7 @@ function renderUsuLista(parent) {
 }
 
 function abrirUsuarioModal(id) {
+  if (typeof exigeAcesso === 'function' && !exigeAcesso('usuarios', id ? 'editar' : 'criar')) return;
   const editing = id ? DB.usuarios.find(u => u.id === id) : null;
 
   const m = openModal({
@@ -23709,7 +23717,7 @@ function deletarUsuario(id) {
 // ============ PERFIS DE ACESSO ============
 function renderUsuPerfis(parent) {
   pageHead(parent, 'Perfis de <em>acesso</em>', `${DB.perfisAcesso.length} perfil(is) configurado(s)`,
-    `<button class="btn btn-primary btn-sm" onclick="abrirPerfilModal()">${ICONS.plus} Novo perfil</button>`);
+    `${(window.gateBtn || ((m,a,h)=>h))('usuarios','criar',`<button class="btn btn-primary btn-sm" onclick="abrirPerfilModal()">${ICONS.plus} Novo perfil</button>`)}`);
 
   parent.appendChild(el(`
     <div class="card" style="margin-bottom:14px">
@@ -23756,6 +23764,7 @@ function renderUsuPerfis(parent) {
 }
 
 function abrirPerfilModal(id) {
+  if (typeof exigeAcesso === 'function' && !exigeAcesso('usuarios', id ? 'editar' : 'criar')) return;
   const editing = id ? DB.perfisAcesso.find(p => p.id === id) : null;
   // Clone para evitar editar direto
   let perfil = editing ? JSON.parse(JSON.stringify(editing)) : {
@@ -24425,7 +24434,7 @@ function isStatusFinalOS(o) {
 // ============ LISTAGEM ============
 function renderOSLista(parent) {
   pageHead(parent, 'Ordens de <em>serviço</em>', `${DB.osServicos.length} cadastrada(s)`,
-    `<button class="btn btn-primary btn-sm" onclick="abrirOSPage()">${ICONS.plus} Nova ordem</button>`);
+    `${(window.gateBtn || ((m,a,h)=>h))('os','criar',`<button class="btn btn-primary btn-sm" onclick="abrirOSPage()">${ICONS.plus} Nova ordem</button>`)}`);
 
   if (DB.osServicos.length === 0) {
     parent.appendChild(el('<div class="card"></div>')).appendChild(
@@ -24565,7 +24574,7 @@ function renderOSKanban(parent) {
          </div>
        </div>
      </div>
-     <button class="btn btn-primary btn-sm" onclick="abrirOSPage()" title="Nova OS avulsa" aria-label="Nova OS avulsa" style="padding:6px 10px;display:inline-flex;align-items:center;justify-content:center;line-height:1">${ICONS.plus}</button>`);
+     ${(window.gateBtn || ((m,a,h)=>h))('os','criar',`<button class="btn btn-primary btn-sm" onclick="abrirOSPage()" title="Nova OS avulsa" aria-label="Nova OS avulsa" style="padding:6px 10px;display:inline-flex;align-items:center;justify-content:center;line-height:1">${ICONS.plus}</button>`)}`);
 
   // Filtros: busca, técnico, tipo
   if (!window._osKanbanFiltros) window._osKanbanFiltros = { busca:'', tecnico:'', tipo:'' };
@@ -25060,6 +25069,7 @@ function renderAgendaLista() {
 
 // ============ FORMULÁRIO EM PÁGINA INTEIRA ============
 function abrirOSPage(id) {
+  if (typeof exigeAcesso === 'function' && !exigeAcesso('os', id ? 'editar' : 'criar')) return;
   const editing = id ? DB.osServicos.find(o => o.id === id) : null;
   _osForm = editing ? JSON.parse(JSON.stringify(editing)) : null;
   if (_osForm) {
@@ -29704,6 +29714,7 @@ function abrirPedidoTimeline(id) {
 // =====================================================
 
 function aprovarFinanceiroPedido(id) {
+  if (typeof exigeAcesso === 'function' && !exigeAcesso('financeiro', 'aprovar')) return;
   const p = DB.pedidos.find(x => x.id === id);
   if (!p) return;
 

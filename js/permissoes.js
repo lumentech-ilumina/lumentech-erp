@@ -151,14 +151,47 @@
     return 'inicio';
   }
 
+  // Helper pra usar dentro de template literals dos renderers:
+  //   ${gateBtn('orcamentos', 'criar', `<button>Novo</button>`)}
+  // Se o usuário não tem a permissão, devolve string vazia — o botão nem aparece no DOM.
+  function gateBtn(modulo, acao, html) {
+    if (!temAcesso(modulo, acao)) return '';
+    return html;
+  }
+
+  // Guarda de handler: chama no início de funções de criar/editar/excluir.
+  // Retorna true se pode prosseguir; false (+ toast) se bloqueado.
+  //
+  // Exemplo:
+  //   function openOrcamentoModal() {
+  //     if (!exigeAcesso('orcamentos', 'criar')) return;
+  //     ...
+  //   }
+  function exigeAcesso(modulo, acao) {
+    if (temAcesso(modulo, acao)) return true;
+    const msgs = {
+      ver:     'Você não tem permissão pra visualizar isso.',
+      criar:   'Você não tem permissão pra criar.',
+      editar:  'Você não tem permissão pra editar.',
+      excluir: 'Você não tem permissão pra excluir.',
+      aprovar: 'Você não tem permissão pra aprovar.',
+    };
+    if (typeof toast === 'function') toast(msgs[acao] || 'Acesso negado.', 'danger');
+    return false;
+  }
+
   // Expõe globalmente
   window.permissoes = {
     temAcesso,
     podeAcessarPagina,
     filtrarMenuPorPermissao,
     primeiraPaginaAcessivel,
+    gateBtn,
+    exigeAcesso,
     MENU_ID_TO_MODULE,
   };
   // Atalhos de conveniência usados em vários cantos do app
-  window.temAcesso = temAcesso;
+  window.temAcesso  = temAcesso;
+  window.gateBtn    = gateBtn;
+  window.exigeAcesso = exigeAcesso;
 })();
