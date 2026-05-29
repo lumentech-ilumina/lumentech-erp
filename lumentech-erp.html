@@ -62,7 +62,11 @@
           </div>
         </div>
         <div id="login-error" style="display:none;font-size:12.5px;color:var(--danger);background:var(--danger-bg);border:1px solid #f0d0cd;padding:8px 12px;border-radius:7px;margin-bottom:12px"></div>
-        <button type="submit" class="btn btn-primary btn-block" style="margin-top:8px">Entrar no sistema <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M5 12h14M13 5l7 7-7 7"/></svg></button>
+        <label class="login-lgpd" style="display:flex;align-items:flex-start;gap:8px;margin:2px 0 12px;font-size:11.5px;color:var(--muted);line-height:1.5;cursor:pointer;user-select:none">
+          <input type="checkbox" id="login-lgpd" onchange="document.getElementById('login-submit').disabled=!this.checked" style="margin-top:1px;flex-shrink:0;width:15px;height:15px;cursor:pointer;accent-color:var(--ink)">
+          <span>Li e concordo com a <a href="#" onclick="event.preventDefault();event.stopPropagation();abrirPoliticaPrivacidade()" style="color:var(--ink);text-decoration:underline;font-weight:500">Política de Privacidade</a> e com o tratamento de dados conforme a LGPD — Lei nº 13.709/2018.</span>
+        </label>
+        <button type="submit" id="login-submit" class="btn btn-primary btn-block" disabled style="margin-top:4px">Entrar no sistema <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M5 12h14M13 5l7 7-7 7"/></svg></button>
       </form>
       <div class="login-foot"><span>v2.5.0 · build 2026.05</span><a href="#" id="link-forgot-pass" onclick="event.preventDefault();abrirRecuperarSenha()">Esqueceu a senha?</a></div>
     </div>
@@ -122,6 +126,9 @@
           <div class="urole" id="user-chip-role">—</div>
         </div>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="color:var(--muted)"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg>
+      </div>
+      <div class="sb-lgpd" style="margin-top:10px;font-size:9.5px;color:var(--muted);line-height:1.4;text-align:center;opacity:.7">
+        <a href="#" onclick="event.preventDefault();abrirPoliticaPrivacidade()" style="color:inherit;text-decoration:none">Este sistema segue as diretrizes da LGPD — Lei nº 13.709/2018.</a>
       </div>
     </div>
   </aside>
@@ -45684,6 +45691,42 @@ window.abrirRecuperarSenha = function() {
   };
 };
 
+// =============== POLÍTICA DE PRIVACIDADE / LGPD ===============
+// Modal acessível do checkbox de login e do rodapé do sistema.
+window.abrirPoliticaPrivacidade = function() {
+  const m = openModal({
+    title: 'Política de Privacidade e Proteção de Dados',
+    size: 'lg',
+    body: `
+      <div style="font-size:13px;color:var(--ink-2);line-height:1.65;max-height:62vh;overflow-y:auto;padding-right:8px">
+        <p style="margin:0 0 14px">A privacidade e a segurança dos dados dos usuários são prioridades deste sistema. Todas as informações coletadas são utilizadas exclusivamente para fins operacionais, administrativos, comerciais, suporte técnico e melhoria dos serviços prestados.</p>
+        <p style="margin:0 0 14px">Os dados pessoais fornecidos pelos usuários são armazenados em ambiente seguro e tratados em conformidade com a Lei Geral de Proteção de Dados — LGPD (Lei nº 13.709/2018).</p>
+        <p style="margin:0 0 8px;font-weight:500;color:var(--ink)">Poderão ser coletadas informações como:</p>
+        <ul style="margin:0 0 16px;padding-left:20px;display:grid;gap:3px">
+          <li>Nome completo</li>
+          <li>Telefone</li>
+          <li>E-mail</li>
+          <li>CPF ou CNPJ</li>
+          <li>Endereço</li>
+          <li>Dados de acesso e navegação</li>
+          <li>Informações operacionais relacionadas ao uso do sistema</li>
+        </ul>
+        <p style="margin:0 0 16px">As informações não serão vendidas ou compartilhadas com terceiros, exceto quando necessário para cumprimento de obrigações legais, contratuais ou operacionais.</p>
+        <p style="margin:0 0 8px;font-weight:500;color:var(--ink)">O usuário poderá, a qualquer momento:</p>
+        <ul style="margin:0 0 16px;padding-left:20px;display:grid;gap:3px">
+          <li>Solicitar acesso aos seus dados</li>
+          <li>Solicitar correção de informações</li>
+          <li>Solicitar exclusão de cadastro</li>
+          <li>Revogar consentimentos anteriormente concedidos</li>
+        </ul>
+        <p style="margin:0">Ao utilizar este sistema, o usuário declara estar ciente e de acordo com os termos desta Política de Privacidade e Proteção de Dados.</p>
+      </div>
+    `,
+    footer: `<button class="btn btn-primary" id="pp-close">Entendi</button>`
+  });
+  m.root.querySelector('#pp-close').onclick = () => m.close();
+};
+
 // Modal de "Definir nova senha" — aparece quando o usuário entra com ?reset=1 (vindo do email).
 window.abrirDefinirNovaSenha = function() {
   const m = openModal({
@@ -45753,6 +45796,11 @@ window.abrirDefinirNovaSenha = function() {
 document.getElementById('login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const errBox = $('#login-error');
+  if (!$('#login-lgpd')?.checked) {
+    errBox.textContent = 'Você precisa aceitar a Política de Privacidade para entrar.';
+    errBox.style.display = 'block';
+    return;
+  }
   const submitBtn = e.target.querySelector('button[type="submit"]');
   if (submitBtn) { submitBtn.disabled = true; submitBtn.dataset._txt = submitBtn.textContent; submitBtn.textContent = 'Entrando...'; }
   try {
