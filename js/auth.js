@@ -35,6 +35,27 @@ const authService = {
     const { data } = await window.supabaseClient.auth.getSession();
     return data?.session || null;
   },
+
+  // Dispara o email de reset do Supabase. O usuário recebe um link mágico que
+  // abre a página atual com tokens na URL — o handler de reset processa.
+  async sendPasswordReset(email) {
+    const e = (email || '').replace(/\s/g, '').toLowerCase();
+    if (!e) return { ok: false, error: 'Informe o e-mail.' };
+    const redirectTo = window.location.origin + window.location.pathname + '?reset=1';
+    const { error } = await window.supabaseClient.auth.resetPasswordForEmail(e, { redirectTo });
+    if (error) return { ok: false, error: error.message || 'Falha ao enviar email.' };
+    return { ok: true };
+  },
+
+  // Aplica a nova senha (após o usuário clicar no link recebido por email).
+  // Supabase coloca a sessão temporária automaticamente quando a URL tem o token.
+  async updatePassword(newPassword) {
+    const p = (newPassword || '').replace(/^\s+|\s+$/g, '');
+    if (p.length < 8) return { ok: false, error: 'A senha precisa ter no mínimo 8 caracteres.' };
+    const { error } = await window.supabaseClient.auth.updateUser({ password: p });
+    if (error) return { ok: false, error: error.message || 'Falha ao atualizar a senha.' };
+    return { ok: true };
+  },
 };
 
 window.authService = authService;

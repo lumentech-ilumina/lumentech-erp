@@ -180,10 +180,16 @@ const repo = (() => {
     { table: 'ambientes_padrao', key: 'ambientesPadrao' },
     // Fase 11 — Logística e pós-venda complementares
     { table: 'motivos_troca',         key: 'motivosTroca' },
+    { table: 'motivos_devolucao',     key: 'motivosDevolucao' },
+    { table: 'etapas_producao',       key: 'etapasProducao' },
     { table: 'pendencias_separacao',  key: 'pendenciasSeparacao' },
     { table: 'auditoria_exclusoes',   key: 'auditoriaExclusoes' },
     'motoristas',
     'rotas',
+    // Fase 12 — Vendas Externas (Field Sales CRM)
+    { table: 'pontos_comerciais',  key: 'pontosComerciais' },
+    { table: 'visitas_campo',      key: 'visitasCampo' },
+    { table: 'segmentos_vendas',   key: 'segmentosVendas' },
   ];
 
   function _entityTable(e) { return typeof e === 'string' ? e : e.table; }

@@ -38,6 +38,10 @@ function loadDB() {
     if (!Array.isArray(merged.movimentacoes)) merged.movimentacoes = [];
     if (!Array.isArray(merged.pendenciasSeparacao)) merged.pendenciasSeparacao = [];
     if (!Array.isArray(merged.motivosTroca) || merged.motivosTroca.length === 0) merged.motivosTroca = defaultMotivosTroca();
+    if (!Array.isArray(merged.motivosDevolucao) || merged.motivosDevolucao.length === 0) merged.motivosDevolucao = defaultMotivosDevolucao();
+    if (!Array.isArray(merged.etapasProducao) || merged.etapasProducao.length === 0) merged.etapasProducao = defaultEtapasProducao();
+    if (!Array.isArray(merged.osStatus)       || merged.osStatus.length === 0)       merged.osStatus       = defaultOSStatus();
+    if (!Array.isArray(merged.separacaoEtapas)|| merged.separacaoEtapas.length === 0) merged.separacaoEtapas = defaultSeparacaoEtapas();
     // Suprimentos
     if (!Array.isArray(merged.patrimonios)) merged.patrimonios = [];
     if (!Array.isArray(merged.impostos)) merged.impostos = [];
@@ -48,6 +52,10 @@ function loadDB() {
     if (!Array.isArray(merged.rotas)) merged.rotas = [];
     if (!Array.isArray(merged.auditoriaExclusoes)) merged.auditoriaExclusoes = [];
     if (!Array.isArray(merged.linhasProducao)) merged.linhasProducao = [];
+    // Vendas Externas (Field Sales CRM)
+    if (!Array.isArray(merged.pontosComerciais)) merged.pontosComerciais = [];
+    if (!Array.isArray(merged.visitasCampo)) merged.visitasCampo = [];
+    if (!Array.isArray(merged.segmentosVendas) || merged.segmentosVendas.length === 0) merged.segmentosVendas = defaultSegmentosVendas();
     // Counters compatibility
     merged.counters = { ...def.counters, ...(saved.counters || {}) };
     return merged;
@@ -153,6 +161,14 @@ function defaultDB() {
     // Pendências de compra: itens com conferência parcial (separado < pedido) que aguardam material novo
     pendenciasSeparacao: [], // {id, pedidoId, clienteId, produtoId, sku, qtdSolicitada, qtdSeparada, qtdPendencia, dataPedido, dataPendencia, status:'aberta'|'oc_emitida'|'atendida', ordemCompraId, previsaoChegada, atendidoEm, historico:[{data, usuario, evento, detalhe}]}
     motivosTroca: defaultMotivosTroca(), // [{id, nome, padrao:boolean}] — lista personalizável de motivos pra troca
+    motivosDevolucao: defaultMotivosDevolucao(), // [{id, nome, padrao:boolean}] — lista personalizável de motivos pra devolução
+    etapasProducao: defaultEtapasProducao(), // [{id, nome, cor, ordem, padrao:boolean}] — etapas personalizáveis do kanban de produção
+    osStatus: defaultOSStatus(),             // [{id, label, cor, icon, ordem, padrao:boolean}] — status personalizáveis do kanban de Ordem de Serviço
+    separacaoEtapas: defaultSeparacaoEtapas(), // [{id, label, cor, ordem, padrao}] — label/cor editáveis das colunas do pipeline de Logística
+    // Vendas Externas (Field Sales CRM)
+    pontosComerciais: [],    // [{id, nome, segmentoId, categoria, endereco, cidade, uf, lat, lng, telefone, email, observacoes, criadoEm}]
+    visitasCampo: [],        // [{id, pontoId, clienteId, vendedorId, status, dataAgendada, checkinEm, checkinLat, checkinLng, checkoutEm, fotos[], fotoVendedor, resumo, interesse, produtosInteresse, concorrentes, proximaAcao, oportunidadeVenda, observacoes, historico[]}]
+    segmentosVendas: defaultSegmentosVendas(),  // [{id, nome, categorias[]}]
     // Estoque avançado
     movimentacoes: [],     // {id, tipo:entrada|saida|transferencia|ajuste, sku, qtd, motivo, doc, data, usuario, origem, destino, lote}
     lotes: [],             // {id, sku, numero, qtd, validade, fornecedor}
@@ -398,6 +414,17 @@ function defaultPerfisAcesso() {
   ];
 }
 
+// Segmentos padrão de vendas externas (editáveis pelo usuário)
+function defaultSegmentosVendas() {
+  return [
+    { id: 'seg_iluminacao',    nome: 'Iluminação',       categorias: ['Lojas de iluminação','Distribuidores','Atacadistas','Showrooms'] },
+    { id: 'seg_construcao',    nome: 'Construção civil', categorias: ['Construtoras','Empreiteiras','Materiais de construção','Engenharia'] },
+    { id: 'seg_industria',     nome: 'Indústrias',       categorias: ['Fábricas','Galpões','Plantas industriais'] },
+    { id: 'seg_varejo',        nome: 'Varejo',           categorias: ['Lojas','Comércio em geral','Franquias'] },
+    { id: 'seg_arquitetura',   nome: 'Arquitetura',      categorias: ['Escritórios de arquitetura','Designers'] },
+  ];
+}
+
 // Motivos padrão de troca (editáveis pelo usuário)
 function defaultMotivosTroca() {
   return [
@@ -408,6 +435,61 @@ function defaultMotivosTroca() {
     { id: 'mt_arrependi',  nome: 'Arrependimento do cliente', padrao: true },
     { id: 'mt_dimensoes',  nome: 'Dimensões fora do esperado', padrao: true },
     { id: 'mt_cor',        nome: 'Cor ou acabamento divergente', padrao: true },
+  ];
+}
+
+// Status padrão do kanban de Ordem de Serviço (editáveis pelo usuário)
+function defaultOSStatus() {
+  return [
+    { id: 'aberta',         label: 'Aberta',            cor: '#808080', icon: '📋', ordem: 1, padrao: true },
+    { id: 'agendada',       label: 'Agendada',          cor: '#0369a1', icon: '📅', ordem: 2, padrao: true },
+    { id: 'a_caminho',      label: 'Técnico a caminho', cor: '#7c3aed', icon: '🛵', ordem: 3, padrao: true },
+    { id: 'em_atendimento', label: 'Em atendimento',    cor: '#d97706', icon: '🔧', ordem: 4, padrao: true },
+    { id: 'pausada',        label: 'Pausada',           cor: '#ca8a04', icon: '⏸', ordem: 5, padrao: true },
+    { id: 'finalizada',     label: 'Finalizada',        cor: '#2E7D32', icon: '✅', ordem: 6, padrao: true },
+    { id: 'cancelada',      label: 'Cancelada',         cor: '#B0241F', icon: '✕', ordem: 7, padrao: true },
+  ];
+}
+
+// Etapas padrão do pipeline de Separação/Logística (label e cor editáveis pelo usuário).
+// Os ids são fixos porque cada um está amarrado a uma transição de negócio (timestamp no pedido).
+function defaultSeparacaoEtapas() {
+  return [
+    { id: 'aguardando_aprov', label: 'Aguardando financeiro',  cor: '#808080', ordem: 1, padrao: true },
+    { id: 'aprovado',         label: 'Aprovado · iniciar',     cor: '#1E4F8F', ordem: 2, padrao: true },
+    { id: 'em_separacao',     label: 'Em separação',           cor: '#9A6A0A', ordem: 3, padrao: true },
+    { id: 'separado',         label: 'Separado · embalar',     cor: '#9A6A0A', ordem: 4, padrao: true },
+    { id: 'em_embalagem',     label: 'Em embalagem',           cor: '#1E4F8F', ordem: 5, padrao: true },
+    { id: 'armazenado',       label: 'Armazenado · NF',        cor: '#1E4F8F', ordem: 6, padrao: true },
+    { id: 'nf_emitida',       label: 'NF emitida · expedir',   cor: '#2E7D32', ordem: 7, padrao: true },
+  ];
+}
+
+// Etapas padrão do kanban de Produção (editáveis pelo usuário)
+function defaultEtapasProducao() {
+  return [
+    { id: 'ep_aguard_sep',  nome: 'Aguardando separação', cor: '#808080', ordem: 1, padrao: true },
+    { id: 'ep_aguard_oper', nome: 'Aguardando operador',  cor: '#9A6A0A', ordem: 2, padrao: true },
+    { id: 'ep_em_prod',     nome: 'Em produção',          cor: '#1E4F8F', ordem: 3, padrao: true },
+    { id: 'ep_inspecao',    nome: 'Inspeção',             cor: '#7C3AED', ordem: 4, padrao: true },
+    { id: 'ep_embalagem',   nome: 'Embalagem',            cor: '#0369A1', ordem: 5, padrao: true },
+    { id: 'ep_armazenado',  nome: 'Armazenado',           cor: '#2E7D32', ordem: 6, padrao: true },
+    { id: 'ep_entregue',    nome: 'Entregue',             cor: '#2E7D32', ordem: 7, padrao: true },
+  ];
+}
+
+// Motivos padrão de devolução (editáveis pelo usuário)
+function defaultMotivosDevolucao() {
+  return [
+    { id: 'md_arrependi',     nome: 'Arrependimento do cliente',       padrao: true },
+    { id: 'md_defeito',       nome: 'Defeito de fabricação',           padrao: true },
+    { id: 'md_dano_trans',    nome: 'Dano em transporte',              padrao: true },
+    { id: 'md_incorreto',     nome: 'Produto incorreto enviado',       padrao: true },
+    { id: 'md_divergencia',   nome: 'Divergência de pedido',           padrao: true },
+    { id: 'md_atraso',        nome: 'Atraso na entrega',               padrao: true },
+    { id: 'md_dimensoes',     nome: 'Dimensões fora do esperado',      padrao: true },
+    { id: 'md_qualidade',     nome: 'Qualidade abaixo do esperado',    padrao: true },
+    { id: 'md_duplicidade',   nome: 'Pedido em duplicidade',           padrao: true },
   ];
 }
 

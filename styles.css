@@ -76,6 +76,97 @@
   /* Botão de tema (sol/lua) — destaque sutil */
   body.theme-dark .icon-btn { color: var(--muted); }
   body.theme-dark .icon-btn:hover { color: var(--ink); background: var(--surface-2); }
+
+  /* ═══════════════════════════════════════════════════════════
+     CORREÇÕES DE CONTRASTE EM MODO ESCURO
+     Botões com #000/#fff hardcoded somem no fundo slate-900.
+     Inverte primary pra fundo claro com texto escuro.
+     ═══════════════════════════════════════════════════════════ */
+
+  /* Primary — vira claro/contraste em dark mode (preto em slate-900 é invisível) */
+  body.theme-dark .btn-primary,
+  body.theme-dark button.btn-primary,
+  body.theme-dark .btn.btn-primary {
+    background: #F1F5F9 !important;
+    color: #0F172A !important;
+    border: 1px solid #F1F5F9 !important;
+    box-shadow: 0 2px 6px rgba(0,0,0,.4) !important;
+  }
+  body.theme-dark .btn-primary:hover,
+  body.theme-dark button.btn-primary:hover {
+    background: #E2E8F0 !important;
+    color: #0F172A !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,.5) !important;
+  }
+  body.theme-dark .btn-primary:active {
+    background: #CBD5E1 !important;
+  }
+
+  /* Secondary — borda + texto bem visíveis em dark */
+  body.theme-dark .btn-secondary,
+  body.theme-dark .btn.btn-secondary {
+    background: var(--surface) !important;
+    color: var(--ink-2) !important;
+    border: 1.5px solid var(--border-strong) !important;
+  }
+  body.theme-dark .btn-secondary:hover {
+    background: var(--surface-2) !important;
+    color: var(--ink) !important;
+    border-color: var(--ink-2) !important;
+  }
+
+  /* Disabled — em vez de opacity .55 (que apaga), usa surface-2 + muted explícito */
+  body.theme-dark .btn:disabled,
+  body.theme-dark .btn[disabled],
+  body.theme-dark button:disabled,
+  body.theme-dark button[disabled] {
+    opacity: 1 !important;
+    background: var(--surface-2) !important;
+    color: var(--muted) !important;
+    border-color: var(--border) !important;
+    box-shadow: none !important;
+    cursor: not-allowed;
+  }
+
+  /* Botões "btn-ghost" / textos cinza no dark — sobe contraste do hover */
+  body.theme-dark .btn-ghost { color: var(--muted); }
+  body.theme-dark .btn-ghost:hover { color: var(--ink); background: var(--surface-2); }
+
+  /* Inputs/selects/textarea com value preto hardcoded → força ink */
+  body.theme-dark input[style*="color:#000"],
+  body.theme-dark input[style*="color: #000"],
+  body.theme-dark textarea[style*="color:#000"],
+  body.theme-dark select[style*="color:#000"] {
+    color: var(--ink) !important;
+  }
+
+  /* Fundos brancos hardcoded em cards/painéis → vira surface escuro */
+  body.theme-dark [style*="background:#fff"]:not(.pdf-page):not(.pdf-cover):not([class*="pix-"]),
+  body.theme-dark [style*="background: #fff"]:not(.pdf-page):not(.pdf-cover):not([class*="pix-"]),
+  body.theme-dark [style*="background:#FFFFFF"]:not(.pdf-page):not(.pdf-cover):not([class*="pix-"]),
+  body.theme-dark [style*="background:white"]:not(.pdf-page):not(.pdf-cover):not([class*="pix-"]) {
+    background: var(--surface) !important;
+  }
+
+  /* Linha de divisão padrão (HR-like) — quase invisível com border #E5E7EB */
+  body.theme-dark hr,
+  body.theme-dark [style*="border-bottom:1px solid #E5E7EB"],
+  body.theme-dark [style*="border-top:1px solid #E5E7EB"] {
+    border-color: var(--border-strong) !important;
+  }
+
+  /* Chips/badges com fundo branco fixo → escurece */
+  body.theme-dark .badge[style*="background:white"],
+  body.theme-dark .badge[style*="background:#fff"] {
+    background: var(--surface-2) !important;
+    color: var(--ink-2) !important;
+  }
+
+  /* Linha de cabeçalho de tabela que usa #FAFBFC (cinza muito claro) → surface */
+  body.theme-dark [style*="background:#FAFBFC"]:not(.pdf-page):not([class*="pix-"]),
+  body.theme-dark [style*="background: #FAFBFC"]:not(.pdf-page):not([class*="pix-"]) {
+    background: var(--surface-2) !important;
+  }
   /* Scrollbar adapta */
   body.theme-dark ::-webkit-scrollbar-track { background: var(--surface); }
   body.theme-dark ::-webkit-scrollbar-thumb { background: var(--surface-3); }
@@ -435,6 +526,7 @@
   .modal { background: var(--surface); border-radius: 14px; box-shadow: var(--shadow-xl); width: 100%; max-width: 560px; max-height: 90vh; display: flex; flex-direction: column; animation: modalIn .2s ease; }
   .modal.lg { max-width: 760px; }
   @keyframes modalIn { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
   .modal-head { padding: 20px 24px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
   .modal-head h2 { font-family: var(--font); font-size: 22px; font-weight: 300; letter-spacing: -.02em; }
   .modal-close { width: 30px; height: 30px; border-radius: 6px; display: grid; place-items: center; color: var(--muted); }
@@ -451,6 +543,79 @@
 
   .kanban { display: grid; grid-auto-flow: column; grid-auto-columns: 280px; gap: 14px; overflow-x: auto; padding-bottom: 8px; }
   .kanban-col { background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; min-height: 400px; }
+
+  /* === Layout colorido compartilhado por todos os kanbans (OP, CRM, OS, Logística, Vendas Externas) === */
+  /* As cores vêm via inline style (background: ${cor}10, etc) — aqui só padronizamos comportamentos. */
+  .kanban-tint-col { border-radius: 10px; min-height: 320px; overflow: hidden; transition: outline .12s; }
+  .kanban-tint-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .kanban-tint-head h4 { margin: 0; font-size: 12px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; }
+  .kanban-tint-col.is-drop-target { outline: 2px dashed rgba(0,0,0,.18); outline-offset: -2px; }
+
+  /* === Setas circulares flutuantes nas bordas do kanban === */
+  .kfs-side-btn {
+    position: fixed;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    border: 1px solid rgba(15,23,42,.10);
+    background: #fff;
+    color: var(--ink);
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 14px rgba(15,23,42,.18), 0 1px 4px rgba(15,23,42,.10);
+    z-index: 9000;
+    transition: transform .15s, box-shadow .15s, opacity .15s, background .15s;
+    opacity: 0.92;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .kfs-side-btn.active { display: flex; }
+  .kfs-side-btn:hover {
+    transform: scale(1.08);
+    background: var(--ink);
+    color: var(--lumentech-white, #fff);
+    opacity: 1;
+    box-shadow: 0 6px 18px rgba(15,23,42,.28), 0 2px 6px rgba(15,23,42,.14);
+  }
+  .kfs-side-btn:active { transform: scale(0.96); }
+  .kfs-side-btn:disabled,
+  .kfs-side-btn.disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+  .kfs-side-btn svg { width: 16px; height: 16px; }
+
+  /* No Modo TV escondemos as setas (não-interativo) */
+  body.producao-tv-mode .kfs-side-btn { display: none !important; }
+
+  /* Popover de mover etapa (clique no card OP do kanban) */
+  @keyframes opPopFadeIn {
+    from { opacity: 0; transform: translateY(-4px) scale(.98); }
+    to   { opacity: 1; transform: translateY(0)    scale(1); }
+  }
+
+  /* Card de OP atrasado — marca d'água "ATRASADO" diagonal proporcional ao tamanho do card */
+  .op-k-card-atrasada {
+    container-type: inline-size;
+    border-color: rgba(176,36,31,.30) !important;
+    box-shadow: 0 0 0 1px rgba(176,36,31,.10);
+  }
+  /* Eleva todo o conteúdo do card acima da marca d'água */
+  .op-k-card-atrasada > *:not(.op-card-watermark) {
+    position: relative;
+    z-index: 2;
+  }
+
+  /* Modo TV: aplica o mesmo layout colorido em todos os kanbans (não só OP) */
+  body.producao-tv-mode .kanban-tint-col:not(.kanban-op-col) {
+    /* sem !important — deixa o inline style (cor da etapa) prevalecer */
+    border-radius: 12px;
+    min-height: 80vh;
+    box-shadow: 0 2px 12px rgba(15,23,42,.04);
+  }
   .kanban-col-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; padding: 0 4px; }
   .kanban-col-head h4 { font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 8px; }
   .kanban-col-head h4::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--ink-2); }
@@ -672,13 +837,34 @@
   body.producao-tv-mode .content { padding: 28px 36px !important; }
   body.producao-tv-mode .pageh-title,
   body.producao-tv-mode h1 { font-size: 38px !important; }
-  body.producao-tv-mode .kanban { grid-template-columns: repeat(7, 1fr); gap: 14px; }
-  body.producao-tv-mode .kanban-col {
-    background: #fff !important;
+  body.producao-tv-mode .kanban { grid-template-columns: unset; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 14px; overflow-x: auto; }
+
+  /* Modo TV — preserva o layout colorido das colunas (fundo tonal + header tinto + cards recuados) */
+  body.producao-tv-mode .kanban-op-col {
+    border-radius: 12px;
+    min-height: 80vh;
+    box-shadow: 0 2px 12px rgba(15,23,42,.04);
+    /* sem !important — deixa o inline style (cor da etapa) prevalecer */
+  }
+  body.producao-tv-mode .kanban-op-head {
+    padding: 14px 16px !important;
+    border-radius: 11px 11px 0 0 !important;
+  }
+  body.producao-tv-mode .kanban-op-head h4 { font-size: 16px !important; }
+  body.producao-tv-mode .kanban-op-head .count { font-size: 13px !important; padding: 2px 10px !important; }
+  body.producao-tv-mode .kanban-op-body {
+    padding: 14px 16px 18px !important;
+    min-height: 160px !important;
+  }
+
+  /* Fallback pras colunas que ainda usam estrutura antiga (sem kanban-op-col) */
+  body.producao-tv-mode .kanban-col:not(.kanban-op-col) {
+    background: #fff;
     border-radius: 12px;
     min-height: 80vh;
     box-shadow: 0 2px 12px rgba(15,23,42,.04);
   }
+
   body.producao-tv-mode .kanban-col-head h4 { font-size: 14px; }
   body.producao-tv-mode .kanban-card {
     font-size: 14px;
@@ -688,6 +874,9 @@
   body.producao-tv-mode .kc-sub { font-size: 13px; }
   body.producao-tv-mode .kc-foot { font-size: 11px; }
   body.producao-tv-mode .prod-view-toggle .prod-view-btn:not(.active) { display: none; }
+  /* Esconde a engrenagem de editar etapa no modo TV (não-interativo, só leitura) */
+  body.producao-tv-mode .op-stage-edit { display: none !important; }
+  body.producao-tv-mode .op-card-pdf { display: none !important; }
 
   /* Botão "Sair do Modo TV" fixado no topo, visível só quando o modo está ativo */
   .tv-exit-btn {
