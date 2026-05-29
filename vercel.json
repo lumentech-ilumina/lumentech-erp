@@ -1,11 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "cleanUrls": true,
   "trailingSlash": false,
-  "rewrites": [
-    { "source": "/", "destination": "/lumentech-erp.html" },
-    { "source": "/app", "destination": "/lumentech-erp.html" }
-  ],
   "headers": [
     {
       "source": "/(.*)",
@@ -25,6 +20,12 @@
       "source": "/(.*\\.(?:css|js|woff2?|svg|png|jpg|jpeg|gif|webp|ico))",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    },
+    {
+      "source": "/(.*\\.html)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
       ]
     }
   ]

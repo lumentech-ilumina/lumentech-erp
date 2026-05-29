@@ -1,13 +1,9 @@
 # Configuração do Netlify pro Lumentech ERP.
 # Mesmo conteúdo essencial do vercel.json — escolha o host e mantenha apenas um.
+# O index.html na raiz é servido em / por padrão e faz redirect pro lumentech-erp.html.
 
 [build]
   publish = "."
-
-[[redirects]]
-  from = "/"
-  to = "/lumentech-erp.html"
-  status = 200
 
 [[redirects]]
   from = "/app"
