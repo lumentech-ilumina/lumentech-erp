@@ -388,10 +388,62 @@ const repo = (() => {
 
   hookSaveDB();
 
+  // ====================================================
+  // AUDITORIA DE AÇÕES — trilha forense de criar/editar/excluir/aprovar
+  // ====================================================
+  // Falha silenciosa: se a tabela ainda não existe (migration não rodada)
+  // ou se a inserção falhar, NÃO bloqueia a ação do usuário — log é "best effort".
+
+  let _auditMissing = false;
+
+  async function logAcao({ acao, entidade, entidadeId, resumo, dados }) {
+    if (_auditMissing) return null;
+    if (!sb()) return null;
+    const u = window.CURRENT_USER || {};
+    const row = {
+      usuario_id:   u.id || null,
+      usuario_nome: u.nome || u.email || null,
+      acao,
+      entidade,
+      entidade_id:  entidadeId != null ? String(entidadeId) : null,
+      resumo:       resumo || null,
+      dados:        dados || null,
+      user_agent:   typeof navigator !== 'undefined' ? (navigator.userAgent || '').slice(0, 500) : null,
+    };
+    try {
+      const { error } = await sb().from('auditoria_acoes').insert(row);
+      if (error) {
+        const msg = (error.message || '') + '';
+        if (/Could not find the table|relation .* does not exist|schema cache/i.test(msg)) {
+          _auditMissing = true;
+          console.warn('[audit] tabela auditoria_acoes não existe — rode a migration 2026-05-29_audit_log.sql');
+        } else {
+          console.warn('[audit] falha ao logar ação:', msg);
+        }
+        return null;
+      }
+    } catch (err) {
+      console.warn('[audit] erro inesperado:', err);
+    }
+    return row;
+  }
+
+  async function listAuditoria({ limit = 200, entidade = null, entidadeId = null, usuarioId = null } = {}) {
+    if (_auditMissing || !sb()) return [];
+    let q = sb().from('auditoria_acoes').select('*').order('criado_em', { ascending: false }).limit(limit);
+    if (entidade)   q = q.eq('entidade', entidade);
+    if (entidadeId) q = q.eq('entidade_id', String(entidadeId));
+    if (usuarioId)  q = q.eq('usuario_id', usuarioId);
+    const { data, error } = await q;
+    if (error) { console.warn('[audit] list falhou:', error.message); return []; }
+    return data || [];
+  }
+
   return {
     usuarios: { list: listUsuarios, update: updateUsuario, delete: deleteUsuario, setAtivo: setUsuarioAtivo },
     perfis:   { list: listPerfis,   upsert: upsertPerfil, delete: deletePerfil },
     logs:     { list: listLogs,     push: pushLog,        clear: clearLogs },
+    audit:    { log: logAcao,       list: listAuditoria },
     bootstrap,
     sync: { all: syncAll, allDebounced: syncAllDebounced, entity: syncJsonbEntity },
     JSONB_ENTITIES,

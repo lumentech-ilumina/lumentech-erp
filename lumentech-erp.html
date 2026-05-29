@@ -10429,6 +10429,14 @@ function aprovarOrcamento(id) {
   if (typeof exigeAcesso === 'function' && !exigeAcesso('orcamentos', 'aprovar')) return;
   const o = DB.orcamentos.find(x => x.id === id);
   if (!o) return;
+  // Audit log — append-only, best-effort (não bloqueia se falhar)
+  if (window.repo?.audit) {
+    window.repo.audit.log({
+      acao: 'aprovar', entidade: 'orcamento', entidadeId: o.id,
+      resumo: `Aprovou orçamento ${o.id} (${o.cliente||'—'}) · ${brl(o.valor||0)}`,
+      dados: { valor: o.valor, cliente: o.cliente, vendedor: o.vendedor },
+    });
+  }
   o.status = 'Aprovado';
   o.aprovadoEm = new Date().toISOString();
   saveDB();
@@ -23302,6 +23310,7 @@ const USU_SUBMENU = [
   { id: 'perfis', label: 'Perfis de acesso', icon: 'shield' },
   { id: 'permissoes', label: 'Matriz de permissões', icon: 'key' },
   { id: 'logs', label: 'Log de acessos', icon: 'clock' },
+  { id: 'auditoria', label: 'Trilha de auditoria', icon: 'clipboard' },
 ];
 
 // Catálogo dos módulos do sistema (para a matriz)
@@ -23374,8 +23383,132 @@ function renderUsuSubpage() {
     perfis: renderUsuPerfis,
     permissoes: renderUsuPermissoes,
     logs: renderUsuLogs,
+    auditoria: renderUsuAuditoria,
   };
   (renderers[_usuSubpage] || renderers.lista)(wrap);
+}
+
+// ============ AUDITORIA — TRILHA DE AÇÕES ============
+// Lista as ações sensíveis (aprovações, mudanças de perfil, etc) com filtros.
+// Só admin acessa (RLS bloqueia leitura pra outros perfis, mesmo via API).
+async function renderUsuAuditoria(parent) {
+  pageHead(parent, 'Trilha de <em>auditoria</em>', 'Histórico de ações sensíveis — aprovações, exclusões, mudanças de permissão');
+
+  if (!window.CURRENT_USER?.admin) {
+    parent.appendChild(el(`
+      <div class="fp-card" style="padding:24px;text-align:center;color:var(--muted)">
+        <div style="font-size:22px;margin-bottom:8px">🔒</div>
+        <strong>Acesso restrito.</strong> Só administradores visualizam a trilha de auditoria.
+      </div>
+    `));
+    return;
+  }
+
+  if (!window.repo?.audit) {
+    parent.appendChild(el(`
+      <div class="fp-card" style="padding:24px;text-align:center;color:var(--muted)">Sistema de auditoria não carregou.</div>
+    `));
+    return;
+  }
+
+  parent.appendChild(el(`
+    <div class="fp-card" style="margin-bottom:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <div style="flex:1;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select id="aud-filtro-acao" class="filter-select" style="min-width:140px">
+          <option value="">Todas as ações</option>
+          <option value="aprovar">Aprovar</option>
+          <option value="criar">Criar</option>
+          <option value="editar">Editar</option>
+          <option value="excluir">Excluir</option>
+          <option value="cancelar">Cancelar</option>
+        </select>
+        <select id="aud-filtro-entidade" class="filter-select" style="min-width:140px">
+          <option value="">Todas as entidades</option>
+          <option value="orcamento">Orçamento</option>
+          <option value="pedido">Pedido</option>
+          <option value="pedido_financeiro">Pedido (financeiro)</option>
+          <option value="usuario">Usuário</option>
+          <option value="perfil_acesso">Perfil de acesso</option>
+        </select>
+        <button class="btn btn-secondary btn-sm" id="aud-reload">${ICONS.refresh || '↻'} Recarregar</button>
+      </div>
+      <div style="font-size:11px;color:var(--muted)">Append-only — registros não podem ser editados nem deletados</div>
+    </div>
+    <div class="fp-card" style="padding:0">
+      <div id="aud-tbody-wrap" style="max-height:65vh;overflow-y:auto">
+        <div style="padding:24px;text-align:center;color:var(--muted);font-size:12.5px">Carregando…</div>
+      </div>
+    </div>
+  `));
+
+  async function carregar() {
+    const acao = $('#aud-filtro-acao')?.value || null;
+    const entidade = $('#aud-filtro-entidade')?.value || null;
+    const filtros = { limit: 300 };
+    if (entidade) filtros.entidade = entidade;
+    const wrap = $('#aud-tbody-wrap');
+    if (!wrap) return;
+    wrap.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted);font-size:12.5px">Carregando…</div>';
+    const rows = await window.repo.audit.list(filtros);
+    const filtrados = acao ? rows.filter(r => r.acao === acao) : rows;
+    if (filtrados.length === 0) {
+      wrap.innerHTML = '<div style="padding:32px;text-align:center;color:var(--muted)">Nenhuma ação registrada nessa faixa.</div>';
+      return;
+    }
+    const html = `
+      <table class="tbl" style="margin:0;font-size:12px">
+        <thead style="position:sticky;top:0;background:var(--surface);z-index:5;box-shadow:0 1px 0 var(--border)">
+          <tr>
+            <th style="width:160px">Quando</th>
+            <th style="width:140px">Usuário</th>
+            <th style="width:90px">Ação</th>
+            <th style="width:140px">Entidade</th>
+            <th>Resumo</th>
+            <th style="width:60px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${filtrados.map(r => {
+            const dt = r.criado_em ? new Date(r.criado_em) : null;
+            const dtTxt = dt ? `${dt.toLocaleDateString('pt-BR')} ${dt.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}` : '—';
+            const corAcao = {
+              aprovar: '#1D9E75', criar: '#1E4F8F', editar: '#9A6A0A',
+              excluir: '#B0241F', cancelar: '#B0241F',
+            }[r.acao] || '#64748B';
+            return `
+              <tr>
+                <td style="font-family:var(--mono);font-size:11px;color:var(--muted-2)">${dtTxt}</td>
+                <td>${escapeHtml(r.usuario_nome||'—')}</td>
+                <td><span style="font-size:10px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;padding:1px 7px;border-radius:3px;background:${corAcao}15;color:${corAcao}">${escapeHtml(r.acao||'—')}</span></td>
+                <td style="font-size:11.5px;color:var(--muted-2)">${escapeHtml(r.entidade||'—')}${r.entidade_id?` · <span style="font-family:var(--mono);font-size:10px">${escapeHtml(r.entidade_id)}</span>`:''}</td>
+                <td>${escapeHtml(r.resumo||'—')}</td>
+                <td>${r.dados?`<button class="btn btn-secondary btn-sm" data-aud-id="${r.id}" title="Ver detalhes" style="padding:2px 6px;font-size:10px">JSON</button>`:''}</td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    `;
+    wrap.innerHTML = html;
+    wrap.querySelectorAll('[data-aud-id]').forEach(btn => {
+      btn.onclick = () => {
+        const id = +btn.dataset.audId;
+        const row = filtrados.find(r => r.id === id);
+        if (!row) return;
+        openModal({
+          title: `Detalhes · ${row.acao} ${row.entidade||''}`,
+          size: 'md',
+          body: `<pre style="background:var(--surface-2);padding:14px;border-radius:6px;font-size:11px;line-height:1.5;overflow-x:auto;max-height:70vh">${escapeHtml(JSON.stringify(row.dados, null, 2))}</pre>`,
+          footer: `<button class="btn btn-primary" onclick="this.closest('.modal-backdrop').remove()">Fechar</button>`
+        });
+      };
+    });
+  }
+
+  $('#aud-filtro-acao').onchange = carregar;
+  $('#aud-filtro-entidade').onchange = carregar;
+  $('#aud-reload').onclick = carregar;
+  carregar();
 }
 
 // ============ DASHBOARD ============
@@ -23705,6 +23838,13 @@ function deletarUsuario(id) {
         DB.usuarios = DB.usuarios.filter(x => x.id !== id);
         repo.logs.push({ usuarioId: window.CURRENT_USER?.id, acao: 'Usuário excluído', modulo: 'usuarios', detalhe: u.nome })
           .catch(err => console.warn('log falhou:', err));
+        if (window.repo?.audit) {
+          window.repo.audit.log({
+            acao: 'excluir', entidade: 'usuario', entidadeId: u.id,
+            resumo: `Excluiu usuário ${u.nome} (${u.email})`,
+            dados: { nome: u.nome, email: u.email, perfilId: u.perfilId, admin: u.admin },
+          });
+        }
         toast('Usuário excluído', 'danger');
         renderUsuSubpage();
       } catch (err) {
@@ -23870,6 +24010,16 @@ function abrirPerfilModal(id) {
         if (idx >= 0) DB.perfisAcesso[idx] = salvo;
       } else {
         DB.perfisAcesso.push(salvo);
+      }
+      // Audit: mudar permissões de perfil é uma das ações mais sensíveis do sistema
+      if (window.repo?.audit) {
+        window.repo.audit.log({
+          acao: editing ? 'editar' : 'criar',
+          entidade: 'perfil_acesso',
+          entidadeId: salvo.id,
+          resumo: `${editing?'Atualizou permissões do':'Criou'} perfil "${salvo.nome}"`,
+          dados: { nome: salvo.nome, permissoes: salvo.permissoes },
+        });
       }
       toast(editing?'Permissões atualizadas':'Perfil criado');
       m.close();
@@ -29717,6 +29867,14 @@ function aprovarFinanceiroPedido(id) {
   if (typeof exigeAcesso === 'function' && !exigeAcesso('financeiro', 'aprovar')) return;
   const p = DB.pedidos.find(x => x.id === id);
   if (!p) return;
+  // Audit log — registra a aprovação financeira (ação de impacto alto)
+  if (window.repo?.audit) {
+    window.repo.audit.log({
+      acao: 'aprovar', entidade: 'pedido_financeiro', entidadeId: p.id,
+      resumo: `Aprovou financeiro do pedido ${p.id} (${p.cliente||'—'}) · ${brl(p.valor||0)}`,
+      dados: { valor: p.valor, cliente: p.cliente, forma: p.formaPagamento },
+    });
+  }
 
   const formaPedido = p.formaPagamento || p.pagamento?.forma || '—';
   const formasDisponiveis = ['Pix','Dinheiro','Transferência Bancária','Cartão de Crédito','Cartão de Débito','Boleto','Crediário','Cheque','Crédito do cliente','Misto'];
