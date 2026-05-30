@@ -88,9 +88,43 @@ const repo = (() => {
     if (error) throw error;
     return fromDbUsuario(data);
   }
+  // Criação de usuário precisa da service_role (cria no Auth) -> via Edge Function.
+  async function createUsuario(u) {
+    const { data, error } = await sb().functions.invoke('admin-usuarios', {
+      body: {
+        action: 'create',
+        nome: u.nome,
+        email: u.email,
+        password: u.password,
+        telefone: u.telefone || '',
+        cargo: u.cargo || '',
+        setor: u.setor || '',
+        foto: u.foto || '',
+        perfilId: u.perfilId || null,
+        ativo: u.ativo !== false,
+      },
+    });
+    // functions.invoke não rejeita em erro HTTP; o corpo traz { error }.
+    if (error) throw new Error(data?.error || error.message || 'Falha ao criar usuário.');
+    if (data?.error) throw new Error(data.error);
+    return fromDbUsuario(data.usuario);
+  }
+  // Reset de senha de outro usuário também exige service_role.
+  async function resetSenhaUsuario(id, password) {
+    const { data, error } = await sb().functions.invoke('admin-usuarios', {
+      body: { action: 'resetPassword', id, password },
+    });
+    if (error) throw new Error(data?.error || error.message || 'Falha ao redefinir senha.');
+    if (data?.error) throw new Error(data.error);
+    return true;
+  }
   async function deleteUsuario(id) {
-    const { error } = await sb().from('usuarios').delete().eq('id', id);
-    if (error) throw error;
+    // Remove do Auth E da tabela (service_role) — senão sobra login órfão.
+    const { data, error } = await sb().functions.invoke('admin-usuarios', {
+      body: { action: 'delete', id },
+    });
+    if (error) throw new Error(data?.error || error.message || 'Falha ao excluir usuário.');
+    if (data?.error) throw new Error(data.error);
   }
   async function setUsuarioAtivo(id, ativo) {
     const { data, error } = await sb().from('usuarios').update({ ativo }).eq('id', id).select().single();
@@ -440,7 +474,7 @@ const repo = (() => {
   }
 
   return {
-    usuarios: { list: listUsuarios, update: updateUsuario, delete: deleteUsuario, setAtivo: setUsuarioAtivo },
+    usuarios: { list: listUsuarios, create: createUsuario, update: updateUsuario, delete: deleteUsuario, setAtivo: setUsuarioAtivo, resetSenha: resetSenhaUsuario },
     perfis:   { list: listPerfis,   upsert: upsertPerfil, delete: deletePerfil },
     logs:     { list: listLogs,     push: pushLog,        clear: clearLogs },
     audit:    { log: logAcao,       list: listAuditoria },
