@@ -23755,16 +23755,13 @@ function abrirUsuarioModal(id) {
     if (senha && senha.length < 6) { toast('Senha deve ter ao menos 6 caracteres', 'danger'); return; }
     if (senha && senha !== senha2) { toast('As senhas não coincidem', 'danger'); return; }
 
-    // Criação de novos usuários exige edge function com service_role (Fase 2).
-    if (!editing) {
-      toast('Crie novos usuários pelo painel Supabase (em breve direto daqui).', 'warning');
-      return;
-    }
-    if (senha) {
-      toast('Redefinir senha pelo painel ainda não disponível — peça reset via Supabase.', 'warning');
-    }
+    // Novo usuário exige senha (vira o login no Auth)
+    if (!editing && !senha) { toast('Defina uma senha para o novo usuário', 'danger'); return; }
 
-    const patch = {
+    const saveBtn = m.root.querySelector('#uf-save');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.style.opacity = '.6'; }
+
+    const dados = {
       nome, email,
       telefone: m.root.querySelector('#uf-tel').value.trim(),
       cargo:    m.root.querySelector('#uf-cargo').value.trim(),
@@ -23773,16 +23770,37 @@ function abrirUsuarioModal(id) {
       perfilId: m.root.querySelector('#uf-perfil').value,
       ativo:    m.root.querySelector('#uf-ativo').value === '1',
     };
+
     try {
-      const atualizado = await repo.usuarios.update(editing.id, patch);
-      const idx = DB.usuarios.findIndex(u => u.id === editing.id);
-      if (idx >= 0) DB.usuarios[idx] = { ...DB.usuarios[idx], ...atualizado };
-      repo.logs.push({ usuarioId: window.CURRENT_USER?.id, acao: 'Usuário editado', modulo: 'usuarios', detalhe: atualizado.nome })
-        .catch(err => console.warn('log falhou:', err));
-      toast('Usuário atualizado');
+      if (!editing) {
+        // CRIAR — Edge Function cria no Auth + insere na tabela (id = uid)
+        const novo = await repo.usuarios.create({ ...dados, password: senha });
+        DB.usuarios.push(novo);
+        if (window.repo?.audit) {
+          window.repo.audit.log({
+            acao: 'criar', entidade: 'usuario', entidadeId: novo.id,
+            resumo: `Criou usuário "${novo.nome}"`,
+            dados: { nome: novo.nome, email: novo.email, perfilId: novo.perfilId },
+          });
+        }
+        repo.logs.push({ usuarioId: window.CURRENT_USER?.id, acao: 'Usuário criado', modulo: 'usuarios', detalhe: novo.nome })
+          .catch(err => console.warn('log falhou:', err));
+        toast('Usuário criado');
+      } else {
+        // EDITAR perfil
+        const atualizado = await repo.usuarios.update(editing.id, dados);
+        const idx = DB.usuarios.findIndex(u => u.id === editing.id);
+        if (idx >= 0) DB.usuarios[idx] = { ...DB.usuarios[idx], ...atualizado };
+        // Redefinir senha, se preenchida
+        if (senha) await repo.usuarios.resetSenha(editing.id, senha);
+        repo.logs.push({ usuarioId: window.CURRENT_USER?.id, acao: senha ? 'Usuário editado + senha redefinida' : 'Usuário editado', modulo: 'usuarios', detalhe: atualizado.nome })
+          .catch(err => console.warn('log falhou:', err));
+        toast(senha ? 'Usuário atualizado e senha redefinida' : 'Usuário atualizado');
+      }
       m.close();
       renderUsuSubpage();
     } catch (err) {
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.style.opacity = ''; }
       toast('Falha ao salvar: ' + (err.message || err), 'danger');
     }
   };
