@@ -88,43 +88,51 @@ const repo = (() => {
     if (error) throw error;
     return fromDbUsuario(data);
   }
+  // Chama a Edge Function admin-usuarios e devolve o corpo já tratado.
+  // functions.invoke NÃO coloca o corpo em `data` quando o status é non-2xx —
+  // ele entrega um FunctionsHttpError com o Response em `error.context`.
+  // Lemos esse corpo pra mostrar a mensagem real (ex.: "Sem permissão...")
+  // em vez do genérico "Edge Function returned a non-2xx status code".
+  async function invokeAdminUsuarios(body, fallbackMsg) {
+    const { data, error } = await sb().functions.invoke('admin-usuarios', { body });
+    if (error) {
+      let msg = error.message || fallbackMsg;
+      try {
+        if (error.context && typeof error.context.json === 'function') {
+          const corpo = await error.context.json();
+          if (corpo?.error) msg = corpo.error;
+        }
+      } catch (_) { /* corpo não-JSON: mantém msg */ }
+      throw new Error(msg);
+    }
+    if (data?.error) throw new Error(data.error);
+    return data;
+  }
+
   // Criação de usuário precisa da service_role (cria no Auth) -> via Edge Function.
   async function createUsuario(u) {
-    const { data, error } = await sb().functions.invoke('admin-usuarios', {
-      body: {
-        action: 'create',
-        nome: u.nome,
-        email: u.email,
-        password: u.password,
-        telefone: u.telefone || '',
-        cargo: u.cargo || '',
-        setor: u.setor || '',
-        foto: u.foto || '',
-        perfilId: u.perfilId || null,
-        ativo: u.ativo !== false,
-      },
-    });
-    // functions.invoke não rejeita em erro HTTP; o corpo traz { error }.
-    if (error) throw new Error(data?.error || error.message || 'Falha ao criar usuário.');
-    if (data?.error) throw new Error(data.error);
+    const data = await invokeAdminUsuarios({
+      action: 'create',
+      nome: u.nome,
+      email: u.email,
+      password: u.password,
+      telefone: u.telefone || '',
+      cargo: u.cargo || '',
+      setor: u.setor || '',
+      foto: u.foto || '',
+      perfilId: u.perfilId || null,
+      ativo: u.ativo !== false,
+    }, 'Falha ao criar usuário.');
     return fromDbUsuario(data.usuario);
   }
   // Reset de senha de outro usuário também exige service_role.
   async function resetSenhaUsuario(id, password) {
-    const { data, error } = await sb().functions.invoke('admin-usuarios', {
-      body: { action: 'resetPassword', id, password },
-    });
-    if (error) throw new Error(data?.error || error.message || 'Falha ao redefinir senha.');
-    if (data?.error) throw new Error(data.error);
+    await invokeAdminUsuarios({ action: 'resetPassword', id, password }, 'Falha ao redefinir senha.');
     return true;
   }
   async function deleteUsuario(id) {
     // Remove do Auth E da tabela (service_role) — senão sobra login órfão.
-    const { data, error } = await sb().functions.invoke('admin-usuarios', {
-      body: { action: 'delete', id },
-    });
-    if (error) throw new Error(data?.error || error.message || 'Falha ao excluir usuário.');
-    if (data?.error) throw new Error(data.error);
+    await invokeAdminUsuarios({ action: 'delete', id }, 'Falha ao excluir usuário.');
   }
   async function setUsuarioAtivo(id, ativo) {
     const { data, error } = await sb().from('usuarios').update({ ativo }).eq('id', id).select().single();
