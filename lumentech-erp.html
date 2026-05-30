@@ -45802,13 +45802,28 @@ window.abrirDefinirNovaSenha = function() {
 (function checkResetLink() {
   const url = new URL(window.location.href);
   const isReset = url.searchParams.get('reset') === '1';
-  const hashHasRecovery = window.location.hash.includes('type=recovery');
-  if (isReset || hashHasRecovery) {
-    // Espera os scripts/modais estarem prontos
+  const hashParams = new URLSearchParams((window.location.hash || '').replace(/^#/, ''));
+  const hashHasRecovery = hashParams.get('type') === 'recovery';
+  if (!isReset && !hashHasRecovery) return;
+
+  (async () => {
+    // detectSessionInUrl está OFF, então o SDK não processa os tokens do link.
+    // Aplicamos manualmente pra criar a SESSÃO DE RECUPERAÇÃO — sem ela, o
+    // updateUser falha pedindo a senha atual ("Current password required").
+    const access_token = hashParams.get('access_token');
+    const refresh_token = hashParams.get('refresh_token');
+    if (access_token && refresh_token && window.supabaseClient) {
+      try {
+        await window.supabaseClient.auth.setSession({ access_token, refresh_token });
+      } catch (e) {
+        console.warn('Falha ao aplicar sessão de recuperação:', e);
+      }
+    }
+    // Espera os modais estarem prontos
     setTimeout(() => {
       if (typeof window.abrirDefinirNovaSenha === 'function') window.abrirDefinirNovaSenha();
-    }, 400);
-  }
+    }, 300);
+  })();
 })();
 
 document.getElementById('login-form').addEventListener('submit', async (e) => {
