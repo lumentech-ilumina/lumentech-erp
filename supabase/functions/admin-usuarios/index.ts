@@ -117,7 +117,10 @@ Deno.serve(async (req) => {
 
       const novoId = created.user.id;
 
-      // 4b) Insere o perfil na tabela (id = uid do Auth)
+      // 4b) Grava o perfil na tabela (id = uid do Auth).
+      // UPSERT porque o trigger on_auth_user_created já cria uma linha básica
+      // em public.usuarios quando o usuário nasce no Auth — aqui só completamos
+      // os campos (nome, perfil, cargo...) que o trigger não preenche.
       const row = {
         id: novoId,
         nome,
@@ -132,7 +135,7 @@ Deno.serve(async (req) => {
       };
       const { data: inserted, error: insErr } = await admin
         .from('usuarios')
-        .insert(row)
+        .upsert(row, { onConflict: 'id' })
         .select()
         .single();
 
