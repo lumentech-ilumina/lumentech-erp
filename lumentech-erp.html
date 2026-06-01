@@ -46036,14 +46036,23 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     }
     if (loader) loader.remove();
 
-    // Atualização em segundo plano — não bloqueia a tela
+    // Atualização em segundo plano — não bloqueia a tela.
+    // Só re-renderiza se os dados mudaram de verdade: no caso comum (refresh sem
+    // novidade do servidor) NÃO mexemos no DOM → sem "pisca". Transição suave.
+    const _snapshotAntes = (() => { try { return JSON.stringify(window.DB); } catch (_) { return null; } })();
+    const _perfilAntes = window.CURRENT_USER?.perfilId;
     repo.bootstrap().then(() => {
       const u = (window.DB?.usuarios || []).find(x => x.id === session.user.id);
       if (u) window.CURRENT_USER = { id:u.id, nome:u.nome, email:u.email, admin:u.admin, perfilId:u.perfilId };
       if (typeof window.atualizarUserChip === 'function') window.atualizarUserChip();
       if (typeof recalcularEstoqueReservado === 'function') recalcularEstoqueReservado();
-      window.renderNav();
-      if (typeof renderPage === 'function') renderPage(currentPage);
+      let mudou = true;
+      try { mudou = JSON.stringify(window.DB) !== _snapshotAntes; } catch (_) {}
+      const perfilMudou = window.CURRENT_USER?.perfilId !== _perfilAntes;
+      if (mudou || perfilMudou) {
+        window.renderNav();
+        if (typeof renderPage === 'function') renderPage(currentPage);
+      }
     }).catch(err => console.warn('Atualização em segundo plano falhou:', err));
     return;
   }
