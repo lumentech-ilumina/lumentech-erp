@@ -7376,23 +7376,45 @@ function abrirInventario() {
   const produtos = (DB.produtos || []).filter(p => p.controlaEstoque !== false && p.ativo !== false);
   if (produtos.length === 0) { toast('Nenhum produto com controle de estoque cadastrado', 'danger'); return; }
   const usuario = (typeof getUsuarioAtualNome === 'function' ? getUsuarioAtualNome() : 'Sistema');
-  const m = openModal({
-    title: 'Novo inventário',
-    size: 'lg',
-    body: `
+  // Abre em PÁGINA dentro do módulo Estoque (não modal).
+  const host = document.getElementById('estoque-content');
+  if (!host) return;
+  host.innerHTML = '';
+  const page = el('<div class="fade-in"></div>');
+  host.appendChild(page);
+  const voltar = () => { _estoqueSubpage = 'inventario'; renderEstoqueSubmenu(); renderEstoqueSubpage(); };
+
+  page.innerHTML = `
+    <div class="cad-pagina-header">
+      <div>
+        <button class="cad-back-btn" id="inv-voltar">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="15 18 9 12 15 6"/></svg>
+          Voltar
+        </button>
+        <h1 class="cad-pagina-titulo">Novo <em>inventário</em></h1>
+        <div class="cad-pagina-sub">Conte os produtos do catálogo · divergências ajustam o estoque automaticamente.</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:flex-start">
+        <button class="btn btn-secondary btn-sm" id="inv-cancel">Cancelar</button>
+        <button class="btn btn-primary btn-sm" id="inv-save">${ICONS.check} Salvar e ajustar</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px"><div class="card-body">
       <div class="field-row">
         <div class="field"><label>Tipo *</label>
-          <select id="f-tipo">
-            <option>Geral</option><option>Rotativo</option><option>Contagem cega</option><option>Por categoria</option>
-          </select>
+          <select id="f-tipo"><option>Geral</option><option>Rotativo</option><option>Contagem cega</option><option>Por categoria</option></select>
         </div>
         <div class="field"><label>Data</label><input type="date" id="f-data" value="${isoToday()}"></div>
       </div>
       <div class="field"><label>Observações</label><textarea id="f-obs" placeholder="Responsáveis, área inventariada..."></textarea></div>
-      <h4 style="margin-top:14px;margin-bottom:10px;font-size:13px;font-weight:500">Itens a inventariar · ${produtos.length} produto(s)</h4>
-      <div style="max-height:300px;overflow:auto;border:1px solid var(--border);border-radius:8px">
+    </div></div>
+
+    <div class="card"><div class="card-body flush">
+      <div style="padding:12px 16px 0;font-size:12px;color:var(--muted)">${produtos.length} produto(s) a inventariar</div>
+      <div class="table-wrap" style="max-height:60vh;overflow:auto;margin-top:8px">
         <table class="tbl">
-          <thead><tr><th>SKU</th><th>Produto</th><th>Sistema</th><th>Contado</th><th>Diferença</th></tr></thead>
+          <thead style="position:sticky;top:0;background:var(--surface);z-index:5"><tr><th>SKU</th><th>Produto</th><th>Sistema</th><th>Contado</th><th>Diferença</th></tr></thead>
           <tbody>
             ${produtos.map(p => {
               const sis = Number(p.estoqueAtual || 0);
@@ -7401,34 +7423,34 @@ function abrirInventario() {
                 <td class="num num-strong" style="font-size:11px">${escapeHtml(p.sku || _idLimpo(p.id) || '—')}</td>
                 <td style="font-size:12px">${escapeHtml(p.nome)}</td>
                 <td class="num">${fmtInt(sis)}</td>
-                <td><input type="number" step="0.01" class="inv-count" data-pid="${escapeHtml(p.id)}" data-sis="${sis}" style="width:80px;padding:4px 8px;border:1px solid var(--border);border-radius:5px;font-size:12px"></td>
+                <td><input type="number" step="0.01" class="inv-count" data-pid="${escapeHtml(p.id)}" data-sis="${sis}" style="width:90px;padding:4px 8px;border:1px solid var(--border);border-radius:5px;font-size:12px"></td>
                 <td class="num inv-div" data-divfor="${escapeHtml(p.id)}" style="font-size:11px;color:var(--muted)">—</td>
               </tr>`;
             }).join('')}
           </tbody>
         </table>
       </div>
-    `,
-    footer: `<button class="btn btn-secondary" id="m-cancel">Cancelar</button><button class="btn btn-primary" id="m-save">${ICONS.check} Salvar e ajustar</button>`
-  });
+    </div></div>
+  `;
 
-  m.root.querySelectorAll('.inv-count').forEach(inp => {
+  page.querySelectorAll('.inv-count').forEach(inp => {
     inp.oninput = () => {
       const sis = +inp.dataset.sis;
       const cont = +inp.value;
       const div = cont - sis;
-      const cell = m.root.querySelector('.inv-div[data-divfor="' + inp.dataset.pid + '"]');
+      const cell = page.querySelector('.inv-div[data-divfor="' + inp.dataset.pid + '"]');
       if (!cell) return;
       cell.textContent = inp.value === '' ? '—' : (div > 0 ? '+' : '') + fmtInt(div);
       cell.style.color = inp.value === '' ? 'var(--muted)' : (div === 0 ? 'var(--success)' : 'var(--danger)');
     };
   });
 
-  m.root.querySelector('#m-cancel').onclick = () => m.close();
-  m.root.querySelector('#m-save').onclick = () => {
+  page.querySelector('#inv-voltar').onclick = voltar;
+  page.querySelector('#inv-cancel').onclick = voltar;
+  page.querySelector('#inv-save').onclick = () => {
     const itens = [];
     let divergencias = 0;
-    m.root.querySelectorAll('.inv-count').forEach(inp => {
+    page.querySelectorAll('.inv-count').forEach(inp => {
       if (inp.value === '') return;
       const pid = inp.dataset.pid;
       const sis = +inp.dataset.sis;
@@ -7451,9 +7473,9 @@ function abrirInventario() {
     if (itens.length === 0) { toast('Conte ao menos um item', 'danger'); return; }
     DB.inventarios.push({
       id: nextId('inv', 'INV'),
-      tipo: m.root.querySelector('#f-tipo').value,
-      data: m.root.querySelector('#f-data').value || isoToday(),
-      obs: m.root.querySelector('#f-obs').value.trim(),
+      tipo: page.querySelector('#f-tipo').value,
+      data: page.querySelector('#f-data').value || isoToday(),
+      obs: page.querySelector('#f-obs').value.trim(),
       base: 'produtos',
       itens, divergencias,
       status: 'Concluído',
@@ -7461,9 +7483,7 @@ function abrirInventario() {
     });
     saveDB();
     toast(`Inventário registrado · ${divergencias} ajuste(s)`);
-    m.close();
-    renderEstoqueSubpage();
-    renderEstoqueSubmenu();
+    voltar();
   };
 }
 
