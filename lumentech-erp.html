@@ -615,7 +615,11 @@ function logout() {
   confirmAction({
     title: 'Sair do sistema?',
     message: 'Você precisará entrar novamente. Seus dados continuam salvos.',
-    onConfirm: () => {
+    onConfirm: async () => {
+      // Encerra a sessão no Supabase (limpa o token salvo) — senão, com a
+      // restauração de sessão, um refresh logaria de volta automaticamente.
+      try { await authService.logout(); } catch (e) { console.warn('Falha ao encerrar sessão:', e); }
+      window.CURRENT_USER = null;
       $('#app').classList.remove('active');
       $('#login-screen').style.display = 'flex';
       $('#login-pass').value = '';
@@ -45826,6 +45830,26 @@ window.abrirDefinirNovaSenha = function() {
   })();
 })();
 
+// Entra no sistema com um usuário já autenticado. Compartilhado entre o login
+// (submit do formulário) e a restauração de sessão no refresh.
+async function entrarNoSistema(authUser) {
+  await repo.bootstrap();
+  const perfilApp = DB.usuarios.find(u => u.id === authUser?.id);
+  window.CURRENT_USER = perfilApp
+    ? { id: perfilApp.id, nome: perfilApp.nome, email: perfilApp.email, admin: perfilApp.admin, perfilId: perfilApp.perfilId }
+    : { id: authUser?.id, nome: authUser?.email, email: authUser?.email, admin: false, perfilId: null };
+  if (typeof window.atualizarUserChip === 'function') window.atualizarUserChip();
+  $('#login-screen').style.display = 'none';
+  $('#app').classList.add('active');
+  // Reconcilia reservas de estoque com pedidos abertos (corrige dados ruins legados)
+  if (typeof recalcularEstoqueReservado === 'function') {
+    recalcularEstoqueReservado();
+    saveDB();
+  }
+  window.renderNav();
+  navigate('inicio');
+}
+
 document.getElementById('login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const errBox = $('#login-error');
@@ -45845,40 +45869,19 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
       $('#login-pass').focus();
       return;
     }
-    try {
-      await repo.bootstrap();
-    } catch (err) {
-      console.error('Falha ao carregar dados iniciais:', err);
-      errBox.textContent = 'Login OK, mas falha ao carregar dados: ' + (err.message || err);
-      errBox.style.display = 'block';
-      return;
-    }
-    const perfilApp = DB.usuarios.find(u => u.id === result.user?.id);
-    window.CURRENT_USER = perfilApp
-      ? { id: perfilApp.id, nome: perfilApp.nome, email: perfilApp.email, admin: perfilApp.admin, perfilId: perfilApp.perfilId }
-      : { id: result.user?.id, nome: result.user?.email, email: result.user?.email, admin: false, perfilId: null };
-    if (typeof window.atualizarUserChip === 'function') window.atualizarUserChip();
-    errBox.style.display = 'none';
-    $('#login-screen').style.display = 'none';
-    $('#app').classList.add('active');
     // Render protegido — se qualquer função quebrar, captura e mostra erro em vez de loop
     try {
-      // Reconcilia reservas de estoque com pedidos abertos (corrige dados ruins legados)
-      if (typeof recalcularEstoqueReservado === 'function') {
-        recalcularEstoqueReservado();
-        saveDB();
-      }
-      window.renderNav();
-      navigate('inicio');
+      await entrarNoSistema(result.user);
     } catch (err) {
-      console.error('Falha ao renderizar app após login:', err);
-      errBox.textContent = 'Login OK, mas erro ao carregar interface: ' + (err.message || err);
+      console.error('Falha ao entrar no sistema após login:', err);
+      errBox.textContent = 'Login OK, mas falha ao carregar: ' + (err.message || err);
       errBox.style.display = 'block';
       // Volta pra tela de login pra evitar tela quebrada
       $('#login-screen').style.display = 'flex';
       $('#app').classList.remove('active');
       return;
     }
+    errBox.style.display = 'none';
     repo.logs.push({
       usuarioId: result.user?.id,
       acao: 'Login realizado',
@@ -45889,6 +45892,48 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = submitBtn.dataset._txt || 'Entrar'; }
   }
 });
+
+// Restaura a sessão no refresh: se há sessão salva (persistSession), entra direto
+// no sistema em vez de cair no login. Pula durante o fluxo de redefinição de senha.
+(async function restaurarSessao() {
+  const url = new URL(window.location.href);
+  const emReset = url.searchParams.get('reset') === '1' || (window.location.hash || '').includes('type=recovery');
+  if (emReset) return; // o modal de "Definir nova senha" cuida desse caso
+
+  // Anti-flash: se já existe token salvo, esconde o login na hora e mostra um
+  // loader (respeitando o tema) pra não piscar a tela de login no refresh.
+  const loginScreen = $('#login-screen');
+  let temTokenSalvo = false;
+  try { temTokenSalvo = !!localStorage.getItem('lumentech_erp_supabase_auth'); } catch (_) {}
+  let loader = null;
+  if (temTokenSalvo && loginScreen) {
+    loginScreen.style.display = 'none';
+    loader = document.createElement('div');
+    loader.id = 'session-loader';
+    loader.style.cssText = 'position:fixed;inset:0;display:grid;place-items:center;background:var(--bg);z-index:9999';
+    loader.innerHTML = '<div style="font-family:var(--serif,serif);font-size:18px;color:var(--muted)">Carregando…</div>';
+    document.body.appendChild(loader);
+  }
+
+  let session = null;
+  try { session = await authService.currentSession(); } catch (e) { console.warn('Falha ao ler sessão:', e); }
+
+  if (!session?.user) {
+    // Sem sessão válida → mostra o login normalmente
+    if (loader) loader.remove();
+    if (loginScreen) loginScreen.style.display = 'flex';
+    return;
+  }
+
+  try {
+    await entrarNoSistema(session.user);
+  } catch (err) {
+    console.error('Falha ao restaurar sessão:', err);
+    if (loginScreen) loginScreen.style.display = 'flex';
+  } finally {
+    if (loader) loader.remove();
+  }
+})();
 // =====================================================
 // FINANCEIRO · CRÉDITOS DE CLIENTES (view do financeiro: editar/zerar/vencidos em vermelho)
 // =====================================================
