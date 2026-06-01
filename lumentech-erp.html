@@ -46036,20 +46036,18 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     }
     if (loader) loader.remove();
 
-    // Atualização em segundo plano — não bloqueia a tela.
-    // Só re-renderiza se os dados mudaram de verdade: no caso comum (refresh sem
-    // novidade do servidor) NÃO mexemos no DOM → sem "pisca". Transição suave.
-    const _snapshotAntes = (() => { try { return JSON.stringify(window.DB); } catch (_) { return null; } })();
+    // Atualização em segundo plano — NÃO bloqueia e NÃO re-renderiza a página.
+    // O DB é atualizado em memória silenciosamente; os dados novos aparecem na
+    // próxima navegação/interação. Assim garantimos UMA ÚNICA renderização: sem
+    // delay (nada de serializar o DB) e sem o 2º "pisca". Só re-renderiza se o
+    // PERFIL do usuário mudou (afeta menu/permissões) — caso raro.
     const _perfilAntes = window.CURRENT_USER?.perfilId;
     repo.bootstrap().then(() => {
       const u = (window.DB?.usuarios || []).find(x => x.id === session.user.id);
       if (u) window.CURRENT_USER = { id:u.id, nome:u.nome, email:u.email, admin:u.admin, perfilId:u.perfilId };
       if (typeof window.atualizarUserChip === 'function') window.atualizarUserChip();
       if (typeof recalcularEstoqueReservado === 'function') recalcularEstoqueReservado();
-      let mudou = true;
-      try { mudou = JSON.stringify(window.DB) !== _snapshotAntes; } catch (_) {}
-      const perfilMudou = window.CURRENT_USER?.perfilId !== _perfilAntes;
-      if (mudou || perfilMudou) {
+      if (window.CURRENT_USER?.perfilId !== _perfilAntes) {
         window.renderNav();
         if (typeof renderPage === 'function') renderPage(currentPage);
       }
