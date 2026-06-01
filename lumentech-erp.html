@@ -46011,6 +46011,38 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
   let pagina = 'inicio';
   try { pagina = localStorage.getItem('lumentech_erp_pagina') || 'inicio'; } catch (_) {}
 
+  // CACHE-FIRST: o DB já foi hidratado do localStorage (var DB = loadDB() em db.js).
+  // Se o usuário logado existe nesse cache, renderiza NA HORA e atualiza do servidor
+  // em segundo plano — boot percebido como instantâneo. Cache frio (1º acesso neste
+  // navegador) cai no fluxo normal (bootstrap antes de mostrar).
+  const cachedUser = (window.DB?.usuarios || []).find(u => u.id === session.user.id);
+
+  if (cachedUser) {
+    try {
+      window.CURRENT_USER = { id: cachedUser.id, nome: cachedUser.nome, email: cachedUser.email, admin: cachedUser.admin, perfilId: cachedUser.perfilId };
+      if (typeof window.atualizarUserChip === 'function') window.atualizarUserChip();
+      if (loginScreen) loginScreen.style.display = 'none';
+      $('#app').classList.add('active');
+      window.renderNav();
+      navigate(pagina);
+    } catch (err) {
+      console.error('Falha no render cache-first:', err);
+    }
+    if (loader) loader.remove();
+
+    // Atualização em segundo plano — não bloqueia a tela
+    repo.bootstrap().then(() => {
+      const u = (window.DB?.usuarios || []).find(x => x.id === session.user.id);
+      if (u) window.CURRENT_USER = { id:u.id, nome:u.nome, email:u.email, admin:u.admin, perfilId:u.perfilId };
+      if (typeof window.atualizarUserChip === 'function') window.atualizarUserChip();
+      if (typeof recalcularEstoqueReservado === 'function') recalcularEstoqueReservado();
+      window.renderNav();
+      if (typeof renderPage === 'function') renderPage(currentPage);
+    }).catch(err => console.warn('Atualização em segundo plano falhou:', err));
+    return;
+  }
+
+  // Cache frio: comportamento normal (bootstrap antes de mostrar)
   try {
     await entrarNoSistema(session.user, pagina);
   } catch (err) {
