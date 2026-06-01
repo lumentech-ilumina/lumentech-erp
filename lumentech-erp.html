@@ -629,7 +629,13 @@ function logout() {
     onConfirm: async () => {
       // Encerra a sessão no Supabase (limpa o token salvo) — senão, com a
       // restauração de sessão, um refresh logaria de volta automaticamente.
-      try { await authService.logout(); } catch (e) { console.warn('Falha ao encerrar sessão:', e); }
+      try {
+        await authService.logout();
+      } catch (e) {
+        console.warn('Falha ao encerrar sessão:', e);
+        // Mesmo se o signOut falhar (offline), apaga o token pra refresh não re-logar
+        try { localStorage.removeItem('lumentech_erp_supabase_auth'); } catch (_) {}
+      }
       window.CURRENT_USER = null;
       $('#app').classList.remove('active');
       $('#login-screen').style.display = 'flex';
@@ -46077,6 +46083,11 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
       navigate(pagina);
     } catch (err) {
       console.error('Falha no render cache-first:', err);
+      // Não deixa tela vazia: volta pro login
+      $('#app').classList.remove('active');
+      if (loginScreen) loginScreen.style.display = 'flex';
+      if (loader) loader.remove();
+      return;
     }
     if (loader) loader.remove();
 
@@ -46087,13 +46098,15 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     // PERFIL do usuário mudou (afeta menu/permissões) — caso raro.
     const _perfilAntes = window.CURRENT_USER?.perfilId;
     repo.bootstrap().then(() => {
+      // Se o usuário saiu (logout) durante o bootstrap, não ressuscita o CURRENT_USER
+      if (!window.CURRENT_USER) return;
       const u = (window.DB?.usuarios || []).find(x => x.id === session.user.id);
       if (u) window.CURRENT_USER = { id:u.id, nome:u.nome, email:u.email, admin:u.admin, perfilId:u.perfilId };
       if (typeof window.atualizarUserChip === 'function') window.atualizarUserChip();
       if (typeof recalcularEstoqueReservado === 'function') recalcularEstoqueReservado();
       if (window.CURRENT_USER?.perfilId !== _perfilAntes) {
-        window.renderNav();
-        if (typeof renderPage === 'function') renderPage(currentPage);
+        // Perfil mudou no servidor → reaplica o gate de permissão (pode redirecionar)
+        navigate(currentPage);
       }
     }).catch(err => console.warn('Atualização em segundo plano falhou:', err));
     return;
@@ -47236,31 +47249,50 @@ function receberOc() {
 function lancarOc() {
   capturarOcDoDom();
   const oc = _ocForm;
+  // Se as contas a pagar JÁ foram geradas na aprovação (pelas formas de pagamento),
+  // aqui só avança o status — não duplica o lançamento financeiro.
+  if (oc.contasPagarGeradas) {
+    oc.status = 'Lançada';
+    oc.lancadoEm = new Date().toISOString();
+    oc.lancadoPor = window.CURRENT_USER?.nome || '';
+    ocAddHistorico('Financeiro confirmado · contas a pagar já geradas na aprovação');
+    _persistirOc();
+    toast('Ordem lançada — contas a pagar já criadas na aprovação');
+    renderOcPage();
+    return;
+  }
+  // Caso não tenha gerado na aprovação: lança uma conta a pagar pelo total.
   const dias = (function(s) { if (!s) return 30; const m = String(s).match(/(\d+)/); return m ? Number(m[1]) : 30; })(oc.condicaoPagamento);
   const venc = new Date();
   venc.setDate(venc.getDate() + dias);
+  const vencStr = venc.toISOString().split('T')[0];
   const cp = {
     id: nextId('cp','CP'),
-    descricao: `OC ${oc.id} — ${oc.fornecedor}`,
+    desc: `OC ${oc.id} — ${oc.fornecedor || ''}`,
+    descricao: `OC ${oc.id} — ${oc.fornecedor || ''}`,
     fornecedor: oc.fornecedor,
     fornecedorId: oc.fornecedorId,
     valor: Number(oc.total) || 0,
     emissao: oc.emissao,
-    vencimento: venc.toISOString().split('T')[0],
-    status: 'Aberta',
-    origem: 'OC',
+    venc: vencStr,
+    vencimento: vencStr,
+    status: 'aberta',
+    parcela: '',
+    origem: 'ordem-compra',
     origemId: oc.id,
-    parcelas: 1,
+    ordemCompraId: oc.id,
     criadoEm: new Date().toISOString(),
     criadoPor: window.CURRENT_USER?.nome || '',
   };
   DB.contasPagar = DB.contasPagar || [];
   DB.contasPagar.push(cp);
   oc.contaPagarId = cp.id;
+  oc.contasPagarGeradas = true;
+  oc.contasPagarIds = [cp.id];
   oc.status = 'Lançada';
   oc.lancadoEm = new Date().toISOString();
   oc.lancadoPor = window.CURRENT_USER?.nome || '';
-  ocAddHistorico(`Financeiro lançado · CP ${cp.id} · ${brl(cp.valor)} · vencimento ${new Date(cp.vencimento).toLocaleDateString('pt-BR')}`);
+  ocAddHistorico(`Financeiro lançado · CP ${cp.id} · ${brl(cp.valor)} · vencimento ${new Date(vencStr).toLocaleDateString('pt-BR')}`);
   _persistirOc();
   toast(`Conta a pagar ${cp.id} criada`);
   renderOcPage();
