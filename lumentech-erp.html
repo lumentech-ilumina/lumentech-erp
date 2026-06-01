@@ -47058,9 +47058,25 @@ function _ocGerarContasPagar(oc) {
   return ids;
 }
 
+// Verifica se a soma das formas de pagamento bate com o total da OC.
+// Sem total (=0) ou sem formas com valor (usa o total no fallback) → considera válido.
+function _ocPagamentosValidos(oc) {
+  const total = Number(oc.total || 0);
+  if (total <= 0) return true;
+  const pags = (oc.pagamentos || []).filter(p => Number(p.valor || 0) > 0);
+  if (pags.length === 0) return true;
+  const soma = pags.reduce((s, p) => s + Number(p.valor || 0), 0);
+  return Math.abs(total - soma) < 0.01;
+}
+
 // Gera contas a pagar quando a OC passa pra "Aprovada" (uma única vez).
 function _ocChecarGeracaoContas(oc) {
   if (oc.status === 'Aprovada' && !oc.contasPagarGeradas) {
+    // Não gera lançamento errado: se o pagamento não bate o total, avisa e não gera.
+    if (!_ocPagamentosValidos(oc)) {
+      toast('Formas de pagamento não batem com o total — contas a pagar não geradas. Ajuste e aprove de novo.', 'warning');
+      return 0;
+    }
     const ids = _ocGerarContasPagar(oc);
     if (ids.length) {
       oc.contasPagarGeradas = true;
@@ -47141,6 +47157,10 @@ function salvarOc() {
 
 function aprovarOc() {
   capturarOcDoDom();
+  if (!_ocPagamentosValidos(_ocForm)) {
+    toast('As formas de pagamento não batem com o total da ordem. Ajuste antes de aprovar.', 'danger');
+    return;
+  }
   _ocForm.status = 'Aprovada';
   _ocForm.aprovadoEm = new Date().toISOString();
   _ocForm.aprovadoPor = window.CURRENT_USER?.nome || '';
