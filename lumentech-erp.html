@@ -46556,11 +46556,15 @@ function renderOcConteudo() {
   const produtos = (DB.produtos || []).filter(p => p.ativo !== false);
   host.appendChild(el(`
     <div class="fp-card" style="margin-bottom:14px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <h3 class="fp-card-title" style="margin:0">Itens</h3>
-        <button class="btn btn-secondary btn-sm" onclick="ocAddItem()">${ICONS.plus} Adicionar item</button>
+      <h3 class="fp-card-title" style="margin:0 0 12px">Itens</h3>
+
+      <div class="fp-search" style="margin-bottom:14px">
+        <span class="fp-search-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+        </span>
+        <input type="text" id="oc-prod-search" class="fp-input" placeholder="Buscar produto por nome ou código pra adicionar..." autocomplete="off">
+        <div class="fp-suggest" id="oc-prod-suggest"></div>
       </div>
-      <datalist id="oc-prod-list">${produtos.map(p => `<option value="${escapeHtml(p.nome||'')}" data-id="${escapeHtml(p.id)}" data-sku="${escapeHtml(p.sku||'')}" data-un="${escapeHtml(p.unidade||'un')}" data-preco="${p.custoMedio||p.preco||0}">`).join('')}</datalist>
 
       <div class="table-wrap" style="margin:0">
         <table class="tbl" id="oc-itens-tbl" style="font-size:11.5px">
@@ -46583,7 +46587,7 @@ function renderOcConteudo() {
           <tfoot id="oc-totais-foot"></tfoot>
         </table>
       </div>
-      ${oc.itens.length === 0 ? '<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px">Nenhum item — clique em "Adicionar item"</div>' : ''}
+      ${oc.itens.length === 0 ? '<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px">Nenhum item — busque um produto acima pra adicionar</div>' : ''}
     </div>
   `));
 
@@ -46641,6 +46645,76 @@ function renderOcConteudo() {
   }
 
   recalcularTotaisOc();
+  _ocBindProdSearch();
+}
+
+// Busca de produto estilo Orçamento (dropdown customizado, não datalist nativo).
+let _ocProdSearchDocBound = false;
+function _ocBindProdSearch() {
+  const search = document.getElementById('oc-prod-search');
+  const suggest = document.getElementById('oc-prod-suggest');
+  if (!search || !suggest) return;
+  const render = (q) => {
+    suggest.innerHTML = '';
+    if (!q || q.length < 1) { suggest.classList.remove('open'); return; }
+    const matches = (typeof buscarProdutosUnificado === 'function') ? buscarProdutosUnificado(q, 8) : [];
+    if (matches.length === 0) {
+      suggest.innerHTML = `<div class="fp-suggest-item" style="cursor:default;color:var(--muted);text-align:center">Nenhum produto encontrado</div>`;
+    } else {
+      matches.forEach(p => {
+        const prodFull = (DB.produtos||[]).find(x => x.id === (p.idOrigem||p.id)) || {};
+        const custo = Number(prodFull.precoCompra || prodFull.custoMedio || p.preco || 0);
+        const idTxt = (p.idOrigem||p.id) ? `ID: ${escapeHtml(_idLimpo(p.idOrigem||p.id))}` : '';
+        const item = el(`
+          <div class="fp-suggest-item">
+            <div class="fp-suggest-main" style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+              <div style="flex:1;min-width:0">
+                <div>${escapeHtml(p.nome)}</div>
+                <div style="font-size:10.5px;color:var(--muted);margin-top:2px;font-weight:400">${idTxt}</div>
+              </div>
+              <div style="text-align:right;flex-shrink:0">
+                <div style="font-family:var(--mono);font-size:11.5px;font-weight:500">${brl(custo)}</div>
+                <div style="font-size:10px;color:var(--muted);margin-top:1px">custo</div>
+              </div>
+            </div>
+          </div>
+        `);
+        item.onclick = () => ocAddItemProduto(p);
+        suggest.appendChild(item);
+      });
+    }
+    suggest.classList.add('open');
+  };
+  search.oninput = () => render(search.value.trim());
+  search.onfocus = () => { if (search.value.trim()) render(search.value.trim()); };
+  // Fecha ao clicar fora — registra só uma vez (search é recriado a cada render)
+  if (!_ocProdSearchDocBound) {
+    _ocProdSearchDocBound = true;
+    document.addEventListener('click', (e) => {
+      const s = document.getElementById('oc-prod-suggest');
+      const box = document.getElementById('oc-prod-search')?.parentElement;
+      if (s && box && !box.contains(e.target)) s.classList.remove('open');
+    });
+  }
+}
+
+// Adiciona um item à OC a partir de um produto escolhido na busca (preço = custo).
+function ocAddItemProduto(p) {
+  capturarOcDoDom();
+  const prodFull = (DB.produtos||[]).find(x => x.id === (p.idOrigem||p.id)) || {};
+  _ocForm.itens.push({
+    produto: p.nome || prodFull.nome || '',
+    produtoId: prodFull.id || p.idOrigem || p.id || '',
+    sku: prodFull.sku || p.sku || '',
+    qtd: 1,
+    un: prodFull.unidade || p.unidade || 'un',
+    precoUni: Number(prodFull.precoCompra || prodFull.custoMedio || p.preco || 0),
+    ipi: 0, icmsSt: 0,
+  });
+  renderOcConteudo();
+  // Reabre o foco na busca pra adicionar vários em sequência
+  const s = document.getElementById('oc-prod-search');
+  if (s) { s.value = ''; s.focus(); }
 }
 
 function _ocItemRowHtml(it, i) {
@@ -46657,8 +46731,8 @@ function _ocItemRowHtml(it, i) {
         </div>
       </td>
       <td>
-        <input type="text" list="oc-prod-list" data-field="produto" value="${escapeHtml(it.produto||'')}" placeholder="Nome ou SKU" onchange="ocItemProdChange(${i}, this)" style="width:100%;font-weight:500">
-        <div id="oc-item-sku-${i}" style="font-size:11px;color:var(--muted);margin-top:2px">${sku ? 'SKU ' + escapeHtml(sku) : ''}</div>
+        <div style="font-weight:500">${escapeHtml(it.produto||'—')}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">${sku ? 'SKU ' + escapeHtml(sku) : ''}</div>
       </td>
       <td><input type="text" data-field="un" value="${escapeHtml(it.un||'un')}" maxlength="4" style="text-align:center;width:100%" oninput="_ocItemSetField(${i},'un',this.value)"></td>
       <td><input type="number" data-field="qtd" value="${parseInt(it.qtd)||1}" step="1" min="1" inputmode="numeric" oninput="this.value=this.value.replace(/[^0-9]/g,'');ocItemRecalc(${i})" style="text-align:right;width:100%;min-width:80px"></td>
