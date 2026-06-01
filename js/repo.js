@@ -405,13 +405,20 @@ const repo = (() => {
       }
     });
 
-    // Singletons (configOS, counters) — já carregados acima em paralelo
+    // Singletons (configOS, counters, empresa) — já carregados acima em paralelo.
     if (settings) {
       SINGLETON_KEYS.forEach(key => {
         if (settings[key] && window.DB) {
+          // Veio do servidor → aplica e marca como sincronizado.
           window.DB[key] = settings[key];
+          _lastSyncedSingletonHash[key] = JSON.stringify(window.DB[key] || {});
+        } else if (key === 'counters') {
+          // counters: NÃO força upload (evita corrida de IDs entre dispositivos) —
+          // mantém o comportamento atual marcando o hash como já sincronizado.
+          if (window.DB) _lastSyncedSingletonHash[key] = JSON.stringify(window.DB[key] || {});
         }
-        if (window.DB) _lastSyncedSingletonHash[key] = JSON.stringify(window.DB[key] || {});
+        // configOS/empresa local-only (sem valor no servidor): NÃO marca o hash,
+        // pra subir no próximo saveDB em vez de ficar preso só no navegador.
       });
     }
 

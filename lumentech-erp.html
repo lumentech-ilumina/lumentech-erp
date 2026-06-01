@@ -46875,46 +46875,10 @@ function _ocItemSetField(i, field, val) {
   if (_ocForm.itens[i]) _ocForm.itens[i][field] = val;
 }
 
-function ocAddItem() {
-  capturarOcDoDom();
-  _ocForm.itens.push({ produto:'', produtoId:'', sku:'', qtd:1, un:'un', precoUni:0, ipi:0, icmsSt:0 });
-  renderOcConteudo();
-}
-
 function ocRemoveItem(idx) {
   capturarOcDoDom();
   _ocForm.itens.splice(idx, 1);
   renderOcConteudo();
-}
-
-function ocItemProdChange(idx, inputEl) {
-  const v = inputEl.value;
-  const it = _ocForm.itens[idx];
-  if (!it) return;
-  // Procura no datalist
-  const opts = Array.from(document.querySelectorAll('#oc-prod-list option'));
-  const opt = opts.find(o => o.value === v);
-  if (opt) {
-    it.produtoId = opt.dataset.id || '';
-    it.sku = opt.dataset.sku || '';
-    it.un = opt.dataset.un || it.un;
-    if (!it.precoUni) it.precoUni = Number(opt.dataset.preco) || 0;
-    const row = document.querySelector(`tr[data-row="${idx}"]`);
-    if (row) {
-      const unInp = row.querySelector('[data-field="un"]');     if (unInp) unInp.value = it.un;
-      const preInp = row.querySelector('[data-field="precoUni"]'); if (preInp) preInp.value = it.precoUni;
-    }
-    // Atualiza miniatura + SKU pra refletir o produto escolhido (igual lista de Produtos)
-    const prod = (DB.produtos||[]).find(p => p.id === it.produtoId) || null;
-    const imgEl = document.getElementById(`oc-item-img-${idx}`);
-    if (imgEl) imgEl.innerHTML = (prod?.imagens && prod.imagens[0])
-      ? `<img src="${prod.imagens[0]}" style="width:100%;height:100%;object-fit:cover">`
-      : ICONS.box;
-    const skuEl = document.getElementById(`oc-item-sku-${idx}`);
-    if (skuEl) skuEl.textContent = it.sku ? 'SKU ' + it.sku : '';
-  }
-  it.produto = v;
-  ocItemRecalc(idx);
 }
 
 function ocItemRecalc(idx) {
@@ -47045,15 +47009,6 @@ function _ocAtualizarProgPag() {
   else                     prog.innerHTML = `<span style="color:var(--danger)">Excede ${brl(-dif)} (total ${brl(total)})</span>`;
 }
 
-// Extrai prazos em dias das condições de pagamento ("30/60/90" -> [30,60,90])
-function _ocParsePrazos(cond) {
-  if (!cond) return [];
-  const nums = (String(cond).match(/\d+/g) || []).map(Number).filter(n => !isNaN(n));
-  if (nums.length) return nums;
-  if (/vista/i.test(cond)) return [0];
-  return [];
-}
-
 // Gera as contas a pagar a partir das formas de pagamento da OC.
 function _ocGerarContasPagar(oc) {
   DB.contasPagar = DB.contasPagar || [];
@@ -47115,12 +47070,6 @@ function _ocChecarGeracaoContas(oc) {
     }
   }
   return 0;
-}
-
-function ocFornecedorChange(id) {
-  const f = (DB.fornecedores||[]).find(x => x.id === id);
-  _ocForm.fornecedorId = f ? id : '';
-  _ocForm.fornecedor = f ? (f.razaoSocial || f.nome || '') : '';
 }
 
 function ocTransportadoraChange(id) {
