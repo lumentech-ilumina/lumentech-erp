@@ -23325,25 +23325,61 @@ const USU_SUBMENU = [
 ];
 
 // Catálogo dos módulos do sistema (para a matriz)
+// Permissões granulares por ENTIDADE, agrupadas por seção do menu.
+//   grupo  → rótulo da seção (usado na matriz, só visual).
+//   parent → chave "agrupada" antiga; usada pra HERANÇA: perfis criados antes
+//            do destrinchamento só têm a chave do pai (ex: 'cadastros'), e os
+//            filhos herdam dela até o admin reconfigurar. Ver temAcesso() em
+//            permissoes.js. Quando parent === id, é a própria entidade.
 const MODULOS_SISTEMA = [
-  { id: 'dashboard',  label: 'Dashboard',         icon: 'home' },
-  { id: 'crm',        label: 'CRM',               icon: 'crm' },
-  { id: 'clientes',   label: 'Clientes',          icon: 'users' },
-  { id: 'parceiros',  label: 'Parceiros',         icon: 'handshake' },
-  { id: 'orcamentos', label: 'Orçamentos',        icon: 'file-text' },
-  { id: 'pedidos',    label: 'Pedidos',           icon: 'shopping-bag' },
-  { id: 'producao',   label: 'Produção',          icon: 'cog' },
-  { id: 'os',         label: 'Ordens de serviço', icon: 'clipboard' },
-  { id: 'expedicao',  label: 'Expedição',         icon: 'truck' },
-  { id: 'produtos',   label: 'Produtos',          icon: 'box' },
-  { id: 'fornecedores',label:'Fornecedores',      icon: 'truck-2' },
-  { id: 'estoque',    label: 'Estoque',           icon: 'package' },
-  { id: 'financeiro', label: 'Financeiro',        icon: 'dollar' },
-  { id: 'fiscal',     label: 'Fiscal',            icon: 'receipt' },
-  { id: 'cadastros',  label: 'Cadastros',         icon: 'database' },
-  { id: 'relatorios', label: 'Relatórios',        icon: 'chart' },
-  { id: 'usuarios',   label: 'Usuários',          icon: 'shield' },
-  { id: 'config',     label: 'Configurações',     icon: 'settings' },
+  { id:'dashboard',        label:'Dashboard',           icon:'home',        grupo:'Geral',       parent:'dashboard' },
+  { id:'relatorios',       label:'Relatórios',          icon:'chart',       grupo:'Geral',       parent:'relatorios' },
+
+  { id:'crm',              label:'CRM',                 icon:'crm',         grupo:'Vendas',      parent:'crm' },
+  { id:'orcamentos',       label:'Orçamentos',          icon:'file-text',   grupo:'Vendas',      parent:'orcamentos' },
+  { id:'pedidos',          label:'Pedidos',             icon:'shopping-bag',grupo:'Vendas',      parent:'pedidos' },
+  { id:'trocas',           label:'Trocas',              icon:'rotate',      grupo:'Vendas',      parent:'pedidos' },
+  { id:'devolucoes',       label:'Devoluções',          icon:'rotate',      grupo:'Vendas',      parent:'pedidos' },
+  { id:'creditos',         label:'Créditos de clientes',icon:'dollar',      grupo:'Vendas',      parent:'pedidos' },
+
+  { id:'clientes',         label:'Clientes',            icon:'users',       grupo:'Cadastros',   parent:'clientes' },
+  { id:'parceiros',        label:'Parceiros',           icon:'handshake',   grupo:'Cadastros',   parent:'parceiros' },
+  { id:'fornecedores',     label:'Fornecedores',        icon:'truck-2',     grupo:'Cadastros',   parent:'fornecedores' },
+  { id:'transportadoras',  label:'Transportadoras',     icon:'truck',       grupo:'Cadastros',   parent:'cadastros' },
+  { id:'motoristas',       label:'Motoristas',          icon:'user-check',  grupo:'Cadastros',   parent:'cadastros' },
+  { id:'veiculos',         label:'Veículos',            icon:'car',         grupo:'Cadastros',   parent:'cadastros' },
+  { id:'vendedores',       label:'Vendedores',          icon:'user-check',  grupo:'Cadastros',   parent:'cadastros' },
+  { id:'ambientes',        label:'Ambientes',           icon:'box',         grupo:'Cadastros',   parent:'cadastros' },
+  { id:'marcas',           label:'Marcas',              icon:'award',       grupo:'Cadastros',   parent:'cadastros' },
+
+  { id:'log-separacao',    label:'Separação',           icon:'box',         grupo:'Logística',   parent:'expedicao' },
+  { id:'log-pendencias',   label:'Pendências',          icon:'clock',       grupo:'Logística',   parent:'expedicao' },
+  { id:'log-armazenado',   label:'Armazenado',          icon:'package',     grupo:'Logística',   parent:'expedicao' },
+  { id:'log-expedicao',    label:'Expedição',           icon:'truck',       grupo:'Logística',   parent:'expedicao' },
+  { id:'prestacao-contas', label:'Prestação de contas', icon:'clipboard',   grupo:'Logística',   parent:'expedicao' },
+
+  { id:'producao',         label:'Produção',            icon:'cog',         grupo:'Operacional', parent:'producao' },
+  { id:'os',               label:'Ordem de serviço',    icon:'clipboard',   grupo:'Operacional', parent:'os' },
+  { id:'vendas-ext',       label:'Vendas externas',     icon:'map',         grupo:'Operacional', parent:'crm' },
+
+  { id:'produtos',         label:'Produtos',            icon:'box',         grupo:'Estoque',     parent:'produtos' },
+  { id:'estoque',          label:'Controle de estoque', icon:'package',     grupo:'Estoque',     parent:'estoque' },
+
+  { id:'sup-ordens-compra',label:'Ordens de compra',    icon:'clipboard',   grupo:'Suprimentos', parent:'fornecedores' },
+  { id:'sup-followup',     label:'Follow-up',           icon:'clock',       grupo:'Suprimentos', parent:'fornecedores' },
+  { id:'sup-patrimonio',   label:'Patrimônio',          icon:'box',         grupo:'Suprimentos', parent:'fornecedores' },
+
+  { id:'centros-custo',    label:'Centro de custo',     icon:'database',    grupo:'Financeiro',  parent:'financeiro' },
+  { id:'contas-pagar',     label:'Contas a pagar',      icon:'dollar',      grupo:'Financeiro',  parent:'financeiro' },
+  { id:'contas-receber',   label:'Contas a receber',    icon:'dollar',      grupo:'Financeiro',  parent:'financeiro' },
+  { id:'fin-creditos',     label:'Créditos',            icon:'dollar',      grupo:'Financeiro',  parent:'financeiro' },
+  { id:'comissao',         label:'Comissão',            icon:'dollar',      grupo:'Financeiro',  parent:'financeiro' },
+  { id:'fiscal',           label:'Nota Fiscal',         icon:'receipt',     grupo:'Financeiro',  parent:'fiscal' },
+  { id:'fluxo-caixa',      label:'Fluxo de caixa',      icon:'chart',       grupo:'Financeiro',  parent:'financeiro' },
+  { id:'dre',              label:'DRE',                 icon:'chart',       grupo:'Financeiro',  parent:'financeiro' },
+
+  { id:'usuarios',         label:'Usuários & Acessos',  icon:'shield',      grupo:'Sistema',     parent:'usuarios' },
+  { id:'config',           label:'Configurações',       icon:'settings',    grupo:'Sistema',     parent:'config' },
 ];
 
 function renderUsuarios(parent) {
@@ -23943,10 +23979,15 @@ function abrirPerfilModal(id) {
     sistema: false,
     permissoes: {},
   };
-  // Garantir todas as permissões
+  // Garantir todas as permissões. Se a entidade granular ainda não existe no
+  // perfil, HERDA do pai (chave agrupada antiga) — assim abrir e salvar um perfil
+  // legado preserva o acesso que ele já tinha, em vez de zerar tudo.
   MODULOS_SISTEMA.forEach(mod => {
     if (!perfil.permissoes[mod.id]) {
-      perfil.permissoes[mod.id] = { ver: false, criar: false, editar: false, excluir: false, aprovar: false };
+      const pai = (mod.parent && mod.parent !== mod.id) ? perfil.permissoes[mod.parent] : null;
+      perfil.permissoes[mod.id] = pai
+        ? { ver:!!pai.ver, criar:!!pai.criar, editar:!!pai.editar, excluir:!!pai.excluir, aprovar:!!pai.aprovar }
+        : { ver:false, criar:false, editar:false, excluir:false, aprovar:false };
     }
   });
 
@@ -23980,11 +24021,15 @@ function abrirPerfilModal(id) {
             </tr>
           </thead>
           <tbody id="perm-tbody">
-            ${MODULOS_SISTEMA.map(mod => {
+            ${(() => { let _g = null; return MODULOS_SISTEMA.map(mod => {
               const p = perfil.permissoes[mod.id];
-              return `
+              const head = mod.grupo !== _g
+                ? `<tr><td colspan="6" style="background:var(--surface-2);font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600;padding:7px 12px">${escapeHtml(mod.grupo)}</td></tr>`
+                : '';
+              _g = mod.grupo;
+              return head + `
                 <tr>
-                  <td>
+                  <td style="padding-left:18px">
                     <div style="display:flex;align-items:center;gap:10px">
                       <div style="width:24px;height:24px;background:var(--surface-2);border-radius:5px;display:grid;place-items:center;color:var(--muted-2)">${ICONS[mod.icon]||ICONS.box}</div>
                       <div>
@@ -24000,7 +24045,7 @@ function abrirPerfilModal(id) {
                   `).join('')}
                 </tr>
               `;
-            }).join('')}
+            }).join(''); })()}
           </tbody>
         </table>
       </div>
@@ -24093,16 +24138,21 @@ function renderUsuPermissoes(parent) {
               </tr>
             </thead>
             <tbody>
-              ${MODULOS_SISTEMA.map(mod => `
+              ${(() => { let _g = null; return MODULOS_SISTEMA.map(mod => {
+                const head = mod.grupo !== _g
+                  ? `<tr><td colspan="${DB.perfisAcesso.length + 1}" style="background:var(--surface-2);font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600;padding:7px 12px">${escapeHtml(mod.grupo)}</td></tr>`
+                  : '';
+                _g = mod.grupo;
+                return head + `
                 <tr>
-                  <td>
+                  <td style="padding-left:18px">
                     <div style="display:flex;align-items:center;gap:8px">
                       <div style="width:22px;height:22px;background:var(--surface-2);border-radius:5px;display:grid;place-items:center;color:var(--muted-2)">${ICONS[mod.icon]||ICONS.box}</div>
                       <strong style="font-size:12px">${escapeHtml(mod.label)}</strong>
                     </div>
                   </td>
                   ${DB.perfisAcesso.map(p => {
-                    const perm = p.permissoes[mod.id] || {};
+                    const perm = p.permissoes[mod.id] || p.permissoes[mod.parent] || {};
                     const todos = perm.ver && perm.criar && perm.editar && perm.excluir;
                     const algum = perm.ver || perm.criar || perm.editar || perm.excluir;
                     const cor = todos ? 'var(--success)' : algum ? 'var(--warning)' : 'var(--surface-2)';
@@ -24113,7 +24163,8 @@ function renderUsuPermissoes(parent) {
                     </td>`;
                   }).join('')}
                 </tr>
-              `).join('')}
+              `;
+              }).join(''); })()}
             </tbody>
           </table>
         </div>

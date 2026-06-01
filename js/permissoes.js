@@ -17,71 +17,95 @@
 (function () {
   'use strict';
 
-  // De qual módulo de permissão cada item do sidebar/router pertence.
-  // Se um item não estiver mapeado, é considerado livre (acesso garantido) — failsafe pra não
-  // quebrar funcionalidades que ainda não classificamos.
+  // Permissões agora são GRANULARES por entidade: cada item do menu é a própria
+  // chave de permissão. Mapa quase identidade (mantido p/ compat e p/ o caso 'inicio').
+  // Itens não mapeados são livres (failsafe). A herança "filho → pai" (ex: perfil
+  // antigo só com 'cadastros') é resolvida em temAcesso() via PERM_PARENT.
   const MENU_ID_TO_MODULE = {
-    // Top-level
     inicio:               null,      // sempre liberado
     dashboard:            'dashboard',
+    relatorios:           'relatorios',
 
     // Vendas
     crm:                  'crm',
     orcamentos:           'orcamentos',
     pedidos:              'pedidos',
-    trocas:               'pedidos',  // trocas ficam dentro de pedidos
-    devolucoes:           'pedidos',
-    creditos:             'pedidos',
+    trocas:               'trocas',
+    devolucoes:           'devolucoes',
+    creditos:             'creditos',
 
     // Cadastros
     clientes:             'clientes',
     parceiros:            'parceiros',
     fornecedores:         'fornecedores',
-    transportadoras:      'cadastros',
-    motoristas:           'cadastros',
-    veiculos:             'cadastros',
-    vendedores:           'cadastros',
-    ambientes:            'cadastros',
-    marcas:               'cadastros',
+    transportadoras:      'transportadoras',
+    motoristas:           'motoristas',
+    veiculos:             'veiculos',
+    vendedores:           'vendedores',
+    ambientes:            'ambientes',
+    marcas:               'marcas',
 
-    // Logística (todos sob expedicao)
-    'log-separacao':      'expedicao',
-    'log-pendencias':     'expedicao',
-    'log-armazenado':     'expedicao',
-    'log-expedicao':      'expedicao',
-    'prestacao-contas':   'expedicao',
-    separacao:            'expedicao',
-    expedicao:            'expedicao',
+    // Logística
+    'log-separacao':      'log-separacao',
+    'log-pendencias':     'log-pendencias',
+    'log-armazenado':     'log-armazenado',
+    'log-expedicao':      'log-expedicao',
+    'prestacao-contas':   'prestacao-contas',
+    separacao:            'log-separacao',  // alias legado
+    expedicao:            'log-expedicao',  // alias legado
 
     // Operacional
     producao:             'producao',
     os:                   'os',
-    'vendas-ext':         'crm',     // Vendas externas é uma extensão de CRM
+    'vendas-ext':         'vendas-ext',
 
     // Estoque
     produtos:             'produtos',
     estoque:              'estoque',
 
-    // Suprimentos (compras) — sob fornecedores
-    'sup-ordens-compra':  'fornecedores',
-    'sup-followup':       'fornecedores',
-    'sup-patrimonio':     'fornecedores',
+    // Suprimentos
+    'sup-ordens-compra':  'sup-ordens-compra',
+    'sup-followup':       'sup-followup',
+    'sup-patrimonio':     'sup-patrimonio',
 
     // Financeiro
-    'centros-custo':      'financeiro',
-    'contas-pagar':       'financeiro',
-    'contas-receber':     'financeiro',
-    'fin-creditos':       'financeiro',
-    comissao:             'financeiro',
-    'fluxo-caixa':        'financeiro',
-    dre:                  'financeiro',
+    'centros-custo':      'centros-custo',
+    'contas-pagar':       'contas-pagar',
+    'contas-receber':     'contas-receber',
+    'fin-creditos':       'fin-creditos',
+    comissao:             'comissao',
+    'fluxo-caixa':        'fluxo-caixa',
+    dre:                  'dre',
     fiscal:               'fiscal',
 
     // Sistema
     usuarios:             'usuarios',
     config:               'config',
-    cadastros:            'cadastros',
-    relatorios:           'relatorios',
+  };
+
+  // Herança "filho → pai": perfis criados antes do destrinchamento só têm a chave
+  // agrupada (ex: 'cadastros'). Os filhos herdam dela até o admin reconfigurar.
+  const PERM_PARENT = {
+    trocas: 'pedidos', devolucoes: 'pedidos', creditos: 'pedidos',
+    transportadoras: 'cadastros', motoristas: 'cadastros', veiculos: 'cadastros',
+    vendedores: 'cadastros', ambientes: 'cadastros', marcas: 'cadastros',
+    'log-separacao': 'expedicao', 'log-pendencias': 'expedicao', 'log-armazenado': 'expedicao',
+    'log-expedicao': 'expedicao', 'prestacao-contas': 'expedicao',
+    'vendas-ext': 'crm',
+    'sup-ordens-compra': 'fornecedores', 'sup-followup': 'fornecedores', 'sup-patrimonio': 'fornecedores',
+    'centros-custo': 'financeiro', 'contas-pagar': 'financeiro', 'contas-receber': 'financeiro',
+    'fin-creditos': 'financeiro', comissao: 'financeiro', 'fluxo-caixa': 'financeiro', dre: 'financeiro',
+  };
+
+  // Rollup "pai → filhos": se algum código checar a chave agrupada antiga
+  // (ex: exigeAcesso('financeiro','aprovar')) num perfil já granular, concede se
+  // qualquer filho tiver a ação.
+  const PERM_GROUP_CHILDREN = {
+    cadastros: ['transportadoras','motoristas','veiculos','vendedores','ambientes','marcas'],
+    expedicao: ['log-separacao','log-pendencias','log-armazenado','log-expedicao','prestacao-contas'],
+    financeiro: ['centros-custo','contas-pagar','contas-receber','fin-creditos','comissao','fluxo-caixa','dre'],
+    fornecedores: ['sup-ordens-compra','sup-followup','sup-patrimonio'],
+    pedidos: ['trocas','devolucoes','creditos'],
   };
 
   function _getPerfilDoUsuario() {
@@ -101,9 +125,17 @@
     if (!perfil) return false;
     if (perfil._isAdmin) return true;
     if (!perfil.permissoes) return false;
-    const m = perfil.permissoes[modulo];
-    if (!m) return false;
-    return m[acao] === true;
+    const P = perfil.permissoes;
+    // 1. chave granular direta
+    const m = P[modulo];
+    if (m && m[acao] !== undefined) return m[acao] === true;
+    // 2. herança filho → pai (perfil antigo só tem a chave agrupada)
+    const pai = PERM_PARENT[modulo];
+    if (pai && P[pai] && P[pai][acao] !== undefined) return P[pai][acao] === true;
+    // 3. rollup pai → filhos (checagem na chave agrupada num perfil já granular)
+    const filhos = PERM_GROUP_CHILDREN[modulo];
+    if (filhos) return filhos.some(f => P[f] && P[f][acao] === true);
+    return false;
   }
 
   // Versão por id do menu (faz o mapeamento). Útil pro renderNav() e navigate().
