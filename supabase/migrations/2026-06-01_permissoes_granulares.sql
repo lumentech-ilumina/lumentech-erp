@@ -70,6 +70,7 @@ begin
       when 'devolucoes'        then 'pedidos'
       when 'creditos'          then 'pedidos'
       when 'sup-ordens-compra' then 'fornecedores'
+      when 'sup-necessidade'   then 'fornecedores'
       when 'sup-followup'      then 'fornecedores'
       when 'sup-patrimonio'    then 'fornecedores'
       when 'vendas-ext'        then 'crm'
