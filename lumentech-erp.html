@@ -46446,6 +46446,7 @@ function abrirOrdemCompraPage(id) {
     status: 'Aberta',
     itens: [],
     condicaoPagamento: '30 dias',
+    pagamentos: [],
     transportadora: '', transportadoraId: '',
     frete: 0,
     subtotal: 0, ipiTotal: 0, icmsStTotal: 0, total: 0,
@@ -46591,6 +46592,15 @@ function renderOcConteudo() {
     </div>
   `));
 
+  // CARD 2.5 — Formas de pagamento (split). Ao aprovar, vira conta(s) a pagar.
+  host.appendChild(el(`
+    <div class="fp-card" style="margin-bottom:14px">
+      <h3 class="fp-card-title" style="margin:0 0 6px">Formas de pagamento</h3>
+      <div style="font-size:11.5px;color:var(--muted);margin-bottom:14px">Divida em uma ou mais formas. Ao <strong>aprovar</strong> a ordem, cada forma vira conta(s) a pagar <strong>em aberto</strong>. Boleto parcela conforme as <strong>Condições de pagamento</strong> (ex: 30/60/90).</div>
+      <div id="oc-pag-lista"></div>
+    </div>
+  `));
+
   // CARD 3 — Pagamento & Logística
   host.appendChild(el(`
     <div class="fp-card" style="margin-bottom:14px">
@@ -46646,6 +46656,7 @@ function renderOcConteudo() {
 
   recalcularTotaisOc();
   _ocBindProdSearch();
+  _ocRenderPagLista();
 }
 
 // Busca de produto estilo Orçamento (dropdown customizado, não datalist nativo).
@@ -46828,6 +46839,134 @@ function recalcularTotaisOc() {
       <tr><td colspan="6"></td><td style="text-align:right;font-weight:500;font-size:13px">TOTAL</td><td class="num" style="text-align:right;font-weight:500;font-size:13px">${brl(total)}</td><td></td></tr>
     `;
   }
+  if (typeof _ocAtualizarProgPag === 'function') _ocAtualizarProgPag();
+}
+
+// ===== Formas de pagamento da OC (split) + geração de contas a pagar =====
+const OC_FORMAS_PAG = ['Pix','Dinheiro','Boleto','Cartão de Crédito','Cartão de Débito','Transferência Bancária','Crediário'];
+function _ocFormaParcelavel(f) { return f === 'Boleto' || f === 'Cartão de Crédito' || f === 'Crediário'; }
+
+function _ocRenderPagLista() {
+  const host = document.getElementById('oc-pag-lista');
+  if (!host || !_ocForm) return;
+  if (!Array.isArray(_ocForm.pagamentos)) _ocForm.pagamentos = [];
+  // Default: 1 linha já preenchida com o total (Pix)
+  if (_ocForm.pagamentos.length === 0) {
+    _ocForm.pagamentos.push({ forma: 'Pix', valor: Number(_ocForm.total || 0), parcelas: 1 });
+  }
+  const inp = 'padding:6px 8px;border:1px solid var(--border);border-radius:5px;font-size:12.5px;background:var(--surface)';
+  host.innerHTML = _ocForm.pagamentos.map((p, i) => {
+    const parc = _ocFormaParcelavel(p.forma);
+    return `
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <select class="oc-pag-forma" data-i="${i}" style="flex:1.4;${inp}">
+          ${OC_FORMAS_PAG.map(f => `<option ${p.forma===f?'selected':''}>${f}</option>`).join('')}
+        </select>
+        <input type="number" step="0.01" min="0" class="oc-pag-valor" data-i="${i}" value="${p.valor||0}" placeholder="Valor" style="flex:1;text-align:right;${inp}">
+        ${parc
+          ? `<input type="number" min="1" class="oc-pag-parc" data-i="${i}" value="${p.parcelas||1}" title="Nº de parcelas" style="width:64px;text-align:center;${inp}">`
+          : `<span style="width:64px;text-align:center;color:var(--muted-2);font-size:11px">à vista</span>`}
+        <button class="row-action-btn danger oc-pag-rem" data-i="${i}" title="Remover">${ICONS.trash}</button>
+      </div>`;
+  }).join('') + `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+      <button class="btn btn-secondary btn-sm" id="oc-pag-add">${ICONS.plus} Adicionar forma</button>
+      <div id="oc-pag-prog" style="font-size:12px;font-weight:500"></div>
+    </div>`;
+
+  host.querySelectorAll('.oc-pag-forma').forEach(s => s.onchange = () => { _ocForm.pagamentos[+s.dataset.i].forma = s.value; _ocRenderPagLista(); });
+  host.querySelectorAll('.oc-pag-valor').forEach(x => x.oninput = () => { _ocForm.pagamentos[+x.dataset.i].valor = Math.round((+x.value || 0) * 100) / 100; _ocAtualizarProgPag(); });
+  host.querySelectorAll('.oc-pag-parc').forEach(x => x.oninput = () => { _ocForm.pagamentos[+x.dataset.i].parcelas = Math.max(1, parseInt(x.value) || 1); });
+  host.querySelectorAll('.oc-pag-rem').forEach(b => b.onclick = () => { _ocForm.pagamentos.splice(+b.dataset.i, 1); _ocRenderPagLista(); });
+  const add = document.getElementById('oc-pag-add');
+  if (add) add.onclick = () => { _ocForm.pagamentos.push({ forma: 'Pix', valor: 0, parcelas: 1 }); _ocRenderPagLista(); };
+  _ocAtualizarProgPag();
+}
+
+function _ocAtualizarProgPag() {
+  const prog = document.getElementById('oc-pag-prog');
+  if (!prog || !_ocForm) return;
+  const soma = (_ocForm.pagamentos || []).reduce((s, p) => s + Number(p.valor || 0), 0);
+  const total = Number(_ocForm.total || 0);
+  const dif = Math.round((total - soma) * 100) / 100;
+  if (Math.abs(dif) < 0.01) prog.innerHTML = `<span style="color:var(--success)">✓ Bate com o total · ${brl(total)}</span>`;
+  else if (dif > 0)        prog.innerHTML = `<span style="color:var(--warning)">Faltam ${brl(dif)} de ${brl(total)}</span>`;
+  else                     prog.innerHTML = `<span style="color:var(--danger)">Excede ${brl(-dif)} (total ${brl(total)})</span>`;
+}
+
+// Extrai prazos em dias das condições de pagamento ("30/60/90" -> [30,60,90])
+function _ocParsePrazos(cond) {
+  if (!cond) return [];
+  const nums = (String(cond).match(/\d+/g) || []).map(Number).filter(n => !isNaN(n));
+  if (nums.length) return nums;
+  if (/vista/i.test(cond)) return [0];
+  return [];
+}
+
+// Gera as contas a pagar a partir das formas de pagamento da OC.
+function _ocGerarContasPagar(oc) {
+  DB.contasPagar = DB.contasPagar || [];
+  const base = new Date();
+  const ids = [];
+  const addCp = (valor, vencDate, forma, parcelaLabel) => {
+    const venc = vencDate.toISOString().slice(0, 10);
+    const cp = {
+      id: nextId('cp', 'CP'),
+      desc: `OC ${oc.id} · ${oc.fornecedor || ''}${forma ? ' · ' + forma : ''}`.trim(),
+      valor: Math.round(Number(valor) * 100) / 100,
+      venc, vencimento: venc,
+      status: 'aberta',
+      parcela: parcelaLabel || '',
+      fornecedor: oc.fornecedor || '',
+      fornecedorId: oc.fornecedorId || '',
+      centroCustoId: '',
+      obs: `Gerada na aprovação da ordem de compra ${oc.id}`,
+      origem: 'ordem-compra',
+      ordemCompraId: oc.id,
+      forma: forma || '',
+      criadoEm: new Date().toISOString(),
+    };
+    DB.contasPagar.push(cp);
+    ids.push(cp.id);
+  };
+
+  let pags = Array.isArray(oc.pagamentos) ? oc.pagamentos.filter(p => Number(p.valor || 0) > 0) : [];
+  if (pags.length === 0) pags = [{ forma: 'À vista', valor: Number(oc.total || 0), parcelas: 1 }];
+
+  pags.forEach(pg => {
+    const valor = Number(pg.valor || 0);
+    if (valor <= 0) return;
+    let prazos;
+    if (pg.forma === 'Boleto') {
+      prazos = _ocParsePrazos(oc.condicaoPagamento);
+      if (!prazos.length) prazos = Array.from({ length: Math.max(1, parseInt(pg.parcelas) || 1) }, (_, k) => 30 * (k + 1));
+    } else {
+      const n = Math.max(1, parseInt(pg.parcelas) || 1);
+      prazos = n === 1 ? [0] : Array.from({ length: n }, (_, k) => 30 * k);
+    }
+    const n = prazos.length;
+    const valorParc = Math.round((valor / n) * 100) / 100;
+    prazos.forEach((d, i) => {
+      const venc = new Date(base); venc.setDate(venc.getDate() + d);
+      const v = (i === n - 1) ? Math.round((valor - valorParc * (n - 1)) * 100) / 100 : valorParc;
+      addCp(v, venc, pg.forma, n > 1 ? `${i + 1}/${n}` : '');
+    });
+  });
+  return ids;
+}
+
+// Gera contas a pagar quando a OC passa pra "Aprovada" (uma única vez).
+function _ocChecarGeracaoContas(oc) {
+  if (oc.status === 'Aprovada' && !oc.contasPagarGeradas) {
+    const ids = _ocGerarContasPagar(oc);
+    if (ids.length) {
+      oc.contasPagarGeradas = true;
+      oc.contasPagarIds = ids;
+      ocAddHistorico(`${ids.length} conta(s) a pagar gerada(s) no financeiro`);
+      return ids.length;
+    }
+  }
+  return 0;
 }
 
 function ocFornecedorChange(id) {
@@ -46858,7 +46997,7 @@ function capturarOcDoDom() {
     const it = oc.itens[idx];
     if (!it) return;
     const get = f => row.querySelector(`[data-field="${f}"]`)?.value;
-    it.produto = get('produto') || '';
+    // produto/sku/produtoId são definidos ao adicionar (célula é texto, não input) — não sobrescrever
     it.un = get('un') || 'un';
     it.qtd = Number(get('qtd')) || 0;
     it.precoUni = Number(get('precoUni')) || 0;
@@ -46897,8 +47036,9 @@ function salvarOc() {
     oc.criadoPor = oc.criadoPor || (window.CURRENT_USER?.nome || '');
     ocAddHistorico('Ordem criada');
   }
+  const geradas = _ocChecarGeracaoContas(oc);
   _persistirOc();
-  toast(isNew ? `Ordem ${oc.id} criada` : 'Ordem salva');
+  toast(geradas ? `Ordem salva · ${geradas} conta(s) a pagar criada(s)` : (isNew ? `Ordem ${oc.id} criada` : 'Ordem salva'));
   renderOcPage();
 }
 
@@ -46908,8 +47048,9 @@ function aprovarOc() {
   _ocForm.aprovadoEm = new Date().toISOString();
   _ocForm.aprovadoPor = window.CURRENT_USER?.nome || '';
   ocAddHistorico('Ordem aprovada');
+  const geradas = _ocChecarGeracaoContas(_ocForm);
   _persistirOc();
-  toast('Ordem aprovada');
+  toast(geradas ? `Ordem aprovada · ${geradas} conta(s) a pagar criada(s)` : 'Ordem aprovada');
   renderOcPage();
 }
 
