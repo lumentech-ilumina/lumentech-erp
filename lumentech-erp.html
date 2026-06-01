@@ -6690,7 +6690,6 @@ const ESTOQUE_SUBMENU = [
   { id: 'inventario', label: 'Inventário', icon: 'clipboard' },
   { id: 'transferencia', label: 'Transferências', icon: 'shuffle' },
   { id: 'wms', label: 'Localização / WMS', icon: 'map' },
-  { id: 'compra', label: 'Necessidade de Compra', icon: 'shopping-bag' },
   { id: 'giro', label: 'Giro de Estoque', icon: 'rotate' },
   { id: 'abc', label: 'Curva ABC', icon: 'chart' },
 ];
@@ -7372,7 +7371,11 @@ function renderEstoqueInventario(parent) {
 }
 
 function abrirInventario() {
-  if (DB.estoque.length === 0) { toast('Cadastre itens primeiro', 'danger'); return; }
+  // Inventário sobre o CATÁLOGO DE PRODUTOS (fonte da verdade do estoque).
+  // A contagem ajusta produto.estoqueAtual e gera movimentação de ajuste.
+  const produtos = (DB.produtos || []).filter(p => p.controlaEstoque !== false && p.ativo !== false);
+  if (produtos.length === 0) { toast('Nenhum produto com controle de estoque cadastrado', 'danger'); return; }
+  const usuario = (typeof getUsuarioAtualNome === 'function' ? getUsuarioAtualNome() : 'Sistema');
   const m = openModal({
     title: 'Novo inventário',
     size: 'lg',
@@ -7386,20 +7389,22 @@ function abrirInventario() {
         <div class="field"><label>Data</label><input type="date" id="f-data" value="${isoToday()}"></div>
       </div>
       <div class="field"><label>Observações</label><textarea id="f-obs" placeholder="Responsáveis, área inventariada..."></textarea></div>
-      <h4 style="margin-top:14px;margin-bottom:10px;font-size:13px;font-weight:500">Itens a inventariar</h4>
+      <h4 style="margin-top:14px;margin-bottom:10px;font-size:13px;font-weight:500">Itens a inventariar · ${produtos.length} produto(s)</h4>
       <div style="max-height:300px;overflow:auto;border:1px solid var(--border);border-radius:8px">
         <table class="tbl">
-          <thead><tr><th>SKU</th><th>Descrição</th><th>Sistema</th><th>Contado</th><th>Diferença</th></tr></thead>
+          <thead><tr><th>SKU</th><th>Produto</th><th>Sistema</th><th>Contado</th><th>Diferença</th></tr></thead>
           <tbody>
-            ${DB.estoque.map(i => `
+            ${produtos.map(p => {
+              const sis = Number(p.estoqueAtual || 0);
+              return `
               <tr>
-                <td class="num num-strong" style="font-size:11px">${i.id}</td>
-                <td style="font-size:12px">${escapeHtml(i.nome)}</td>
-                <td class="num">${fmtInt(i.qtd)}</td>
-                <td><input type="number" step="0.01" class="inv-count" data-sku="${i.id}" data-sis="${i.qtd}" style="width:80px;padding:4px 8px;border:1px solid var(--border);border-radius:5px;font-size:12px"></td>
-                <td class="num" id="div-${i.id}" style="font-size:11px;color:var(--muted)">—</td>
-              </tr>
-            `).join('')}
+                <td class="num num-strong" style="font-size:11px">${escapeHtml(p.sku || _idLimpo(p.id) || '—')}</td>
+                <td style="font-size:12px">${escapeHtml(p.nome)}</td>
+                <td class="num">${fmtInt(sis)}</td>
+                <td><input type="number" step="0.01" class="inv-count" data-pid="${escapeHtml(p.id)}" data-sis="${sis}" style="width:80px;padding:4px 8px;border:1px solid var(--border);border-radius:5px;font-size:12px"></td>
+                <td class="num inv-div" data-divfor="${escapeHtml(p.id)}" style="font-size:11px;color:var(--muted)">—</td>
+              </tr>`;
+            }).join('')}
           </tbody>
         </table>
       </div>
@@ -7409,11 +7414,11 @@ function abrirInventario() {
 
   m.root.querySelectorAll('.inv-count').forEach(inp => {
     inp.oninput = () => {
-      const sku = inp.dataset.sku;
       const sis = +inp.dataset.sis;
       const cont = +inp.value;
       const div = cont - sis;
-      const cell = m.root.querySelector('#div-' + sku);
+      const cell = m.root.querySelector('.inv-div[data-divfor="' + inp.dataset.pid + '"]');
+      if (!cell) return;
       cell.textContent = inp.value === '' ? '—' : (div > 0 ? '+' : '') + fmtInt(div);
       cell.style.color = inp.value === '' ? 'var(--muted)' : (div === 0 ? 'var(--success)' : 'var(--danger)');
     };
@@ -7424,24 +7429,23 @@ function abrirInventario() {
     const itens = [];
     let divergencias = 0;
     m.root.querySelectorAll('.inv-count').forEach(inp => {
-      if (inp.value !== '') {
-        const sku = inp.dataset.sku;
-        const sis = +inp.dataset.sis;
-        const cont = +inp.value;
-        const div = cont - sis;
-        itens.push({ sku, sistema: sis, contado: cont, divergencia: div });
-        if (div !== 0) {
-          divergencias++;
-          const idx = DB.estoque.findIndex(i => i.id === sku);
-          DB.estoque[idx].qtd = cont;
-          DB.movimentacoes.push({
-            id: nextId('mov', 'MOV', 6),
-            tipo: 'ajuste', sku, skuNome: DB.estoque[idx].nome,
-            qtd: div, saldoAntes: sis, saldoDepois: cont,
-            motivo: 'Ajuste de inventário', doc: '',
-            usuario: 'Ronyel Rick', data: new Date().toISOString(),
-          });
-        }
+      if (inp.value === '') return;
+      const pid = inp.dataset.pid;
+      const sis = +inp.dataset.sis;
+      const cont = +inp.value;
+      const div = cont - sis;
+      const prod = (DB.produtos || []).find(p => p.id === pid);
+      itens.push({ produtoId: pid, sku: prod?.sku || _idLimpo(pid), nome: prod?.nome || '', sistema: sis, contado: cont, divergencia: div });
+      if (div !== 0 && prod) {
+        divergencias++;
+        prod.estoqueAtual = cont;
+        DB.movimentacoes.push({
+          id: nextId('mov', 'MOV', 6),
+          tipo: 'ajuste', sku: prod.sku || pid, skuNome: prod.nome, produtoId: pid,
+          qtd: div, saldoAntes: sis, saldoDepois: cont,
+          motivo: 'Ajuste de inventário', doc: '',
+          usuario, data: new Date().toISOString(),
+        });
       }
     });
     if (itens.length === 0) { toast('Conte ao menos um item', 'danger'); return; }
@@ -7450,9 +7454,10 @@ function abrirInventario() {
       tipo: m.root.querySelector('#f-tipo').value,
       data: m.root.querySelector('#f-data').value || isoToday(),
       obs: m.root.querySelector('#f-obs').value.trim(),
+      base: 'produtos',
       itens, divergencias,
       status: 'Concluído',
-      usuario: 'Ronyel Rick',
+      usuario,
     });
     saveDB();
     toast(`Inventário registrado · ${divergencias} ajuste(s)`);
@@ -23367,6 +23372,7 @@ const MODULOS_SISTEMA = [
   { id:'produtos',         label:'Produtos',            icon:'box',         grupo:'Estoque',     parent:'produtos' },
   { id:'estoque',          label:'Controle de estoque', icon:'package',     grupo:'Estoque',     parent:'estoque' },
 
+  { id:'sup-necessidade',  label:'Necessidade de compra',icon:'shopping-bag',grupo:'Suprimentos', parent:'fornecedores' },
   { id:'sup-ordens-compra',label:'Ordens de compra',    icon:'clipboard',   grupo:'Suprimentos', parent:'fornecedores' },
   { id:'sup-followup',     label:'Follow-up',           icon:'clock',       grupo:'Suprimentos', parent:'fornecedores' },
   { id:'sup-patrimonio',   label:'Patrimônio',          icon:'box',         grupo:'Suprimentos', parent:'fornecedores' },
@@ -39385,6 +39391,7 @@ const MENU_GRUPOS = [
   ]},
   // Grupo SUPRIMENTOS
   { tipo: 'grupo', id: 'g_suprimentos', label: 'Suprimentos', icon: 'truck-2', filhos: [
+    { id: 'sup-necessidade',   label: 'Necessidade de compra', icon: 'shopping-bag' },
     { id: 'sup-ordens-compra', label: 'Ordens de compra', icon: 'clipboard' },
     { id: 'sup-followup',      label: 'Follow up',        icon: 'clock' },
     { id: 'sup-patrimonio',    label: 'Patrimônio',       icon: 'box' },
@@ -47348,6 +47355,7 @@ function deletarImposto(id) {
 
 // ============ Registrar renderers ============
 if (typeof RENDERERS !== 'undefined') {
+  RENDERERS['sup-necessidade']   = renderEstoqueCompra;   // movida do Estoque
   RENDERERS['sup-ordens-compra'] = renderSuprimentosOrdensCompra;
   RENDERERS['sup-followup']      = renderSuprimentosFollowup;
   RENDERERS['sup-patrimonio']    = renderSuprimentosPatrimonio;

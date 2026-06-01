@@ -64,6 +64,7 @@
     estoque:              'estoque',
 
     // Suprimentos
+    'sup-necessidade':    'sup-necessidade',
     'sup-ordens-compra':  'sup-ordens-compra',
     'sup-followup':       'sup-followup',
     'sup-patrimonio':     'sup-patrimonio',
@@ -92,7 +93,7 @@
     'log-separacao': 'expedicao', 'log-pendencias': 'expedicao', 'log-armazenado': 'expedicao',
     'log-expedicao': 'expedicao', 'prestacao-contas': 'expedicao',
     'vendas-ext': 'crm',
-    'sup-ordens-compra': 'fornecedores', 'sup-followup': 'fornecedores', 'sup-patrimonio': 'fornecedores',
+    'sup-necessidade': 'fornecedores', 'sup-ordens-compra': 'fornecedores', 'sup-followup': 'fornecedores', 'sup-patrimonio': 'fornecedores',
     'centros-custo': 'financeiro', 'contas-pagar': 'financeiro', 'contas-receber': 'financeiro',
     'fin-creditos': 'financeiro', comissao: 'financeiro', 'fluxo-caixa': 'financeiro', dre: 'financeiro',
   };
@@ -104,7 +105,7 @@
     cadastros: ['transportadoras','motoristas','veiculos','vendedores','ambientes','marcas'],
     expedicao: ['log-separacao','log-pendencias','log-armazenado','log-expedicao','prestacao-contas'],
     financeiro: ['centros-custo','contas-pagar','contas-receber','fin-creditos','comissao','fluxo-caixa','dre'],
-    fornecedores: ['sup-ordens-compra','sup-followup','sup-patrimonio'],
+    fornecedores: ['sup-necessidade','sup-ordens-compra','sup-followup','sup-patrimonio'],
     pedidos: ['trocas','devolucoes','creditos'],
   };
 
