@@ -46560,10 +46560,10 @@ function renderOcConteudo() {
       <div class="fp-grid-2">
         <div class="fp-field">
           <label>Fornecedor *</label>
-          <select id="oc-fornecedor-id" onchange="ocFornecedorChange(this.value)">
-            <option value="">— Selecione —</option>
-            ${fornecedores.map(f => `<option value="${f.id}" ${oc.fornecedorId===f.id?'selected':''}>${escapeHtml(f.nome)}</option>`).join('')}
-          </select>
+          <div class="fp-search" style="margin:0">
+            <input type="text" id="oc-forn-search" class="fp-input" value="${escapeHtml(oc.fornecedor||'')}" placeholder="Buscar por nome, CNPJ/CPF ou código..." autocomplete="off">
+            <div class="fp-suggest" id="oc-forn-suggest"></div>
+          </div>
         </div>
         <div class="fp-field">
           <label>Previsão de entrega</label>
@@ -46593,11 +46593,11 @@ function renderOcConteudo() {
             <tr>
               <th style="width:50px"></th>
               <th>Produto</th>
-              <th style="width:60px">UN</th>
-              <th style="width:95px">Qtd</th>
-              <th style="width:120px">Preço unit.</th>
-              <th style="width:75px">IPI %</th>
-              <th style="width:115px">ICMS-ST R$</th>
+              <th style="width:74px">UN</th>
+              <th style="width:120px">Qtd</th>
+              <th style="width:150px">Preço unit.</th>
+              <th style="width:100px">IPI %</th>
+              <th style="width:140px">ICMS-ST R$</th>
               <th style="width:130px;text-align:right">Total</th>
               <th style="width:30px"></th>
             </tr>
@@ -46676,7 +46676,69 @@ function renderOcConteudo() {
 
   recalcularTotaisOc();
   _ocBindProdSearch();
+  _ocBindFornSearch();
   _ocRenderPagLista();
+}
+
+// Busca de fornecedor por nome / razão social / CNPJ / CPF / código.
+let _ocFornSearchDocBound = false;
+function _ocBindFornSearch() {
+  const search = document.getElementById('oc-forn-search');
+  const suggest = document.getElementById('oc-forn-suggest');
+  if (!search || !suggest) return;
+  const norm = s => (s||'').toString().toLowerCase();
+  const soDig = s => (s||'').toString().replace(/\D/g,'');
+  const render = (q) => {
+    suggest.innerHTML = '';
+    if (!q || q.length < 1) { suggest.classList.remove('open'); return; }
+    const qn = norm(q), qd = soDig(q);
+    const matches = (DB.fornecedores||[]).filter(f => {
+      return norm(f.nome).includes(qn)
+        || norm(f.razaoSocial).includes(qn)
+        || norm(f.fantasia).includes(qn)
+        || norm(_idLimpo(f.id)).includes(qn)
+        || (qd && (soDig(f.cnpj).includes(qd) || soDig(f.cpf).includes(qd) || soDig(f.cpfCnpj).includes(qd)));
+    }).slice(0, 8);
+    if (matches.length === 0) {
+      suggest.innerHTML = `<div class="fp-suggest-item" style="cursor:default;color:var(--muted);text-align:center">Nenhum fornecedor encontrado</div>`;
+    } else {
+      matches.forEach(f => {
+        const doc = f.cnpj || f.cpf || f.cpfCnpj || '';
+        const item = el(`
+          <div class="fp-suggest-item">
+            <div class="fp-suggest-main" style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+              <div style="flex:1;min-width:0">
+                <div>${escapeHtml(f.nome || f.razaoSocial || '—')}</div>
+                <div style="font-size:10.5px;color:var(--muted);margin-top:2px">${escapeHtml([_idLimpo(f.id), doc].filter(Boolean).join(' · '))}</div>
+              </div>
+            </div>
+          </div>
+        `);
+        item.onclick = () => {
+          _ocForm.fornecedorId = f.id;
+          _ocForm.fornecedor = f.razaoSocial || f.nome || '';
+          search.value = _ocForm.fornecedor;
+          suggest.classList.remove('open');
+        };
+        suggest.appendChild(item);
+      });
+    }
+    suggest.classList.add('open');
+  };
+  search.oninput = () => {
+    render(search.value.trim());
+    // Se limpou o campo, desvincula
+    if (!search.value.trim()) { _ocForm.fornecedorId = ''; _ocForm.fornecedor = ''; }
+  };
+  search.onfocus = () => { if (search.value.trim()) render(search.value.trim()); };
+  if (!_ocFornSearchDocBound) {
+    _ocFornSearchDocBound = true;
+    document.addEventListener('click', (e) => {
+      const s = document.getElementById('oc-forn-suggest');
+      const box = document.getElementById('oc-forn-search')?.parentElement;
+      if (s && box && !box.contains(e.target)) s.classList.remove('open');
+    });
+  }
 }
 
 // Busca de produto estilo Orçamento (dropdown customizado, não datalist nativo).
@@ -46748,6 +46810,9 @@ function ocAddItemProduto(p) {
   if (s) { s.value = ''; s.focus(); }
 }
 
+// Estilo padrão dos inputs da tabela de itens: largura total da coluna, bordas
+// arredondadas, padding confortável — cabe número com 5+ dígitos sem cortar.
+const _OC_INP = 'width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--surface);';
 function _ocItemRowHtml(it, i) {
   const total = (Number(it.qtd)||0) * (Number(it.precoUni)||0) * (1 + (Number(it.ipi)||0)/100) + (Number(it.icmsSt)||0);
   // Espelha a lista do módulo Produtos: miniatura + nome forte + SKU.
@@ -46765,11 +46830,11 @@ function _ocItemRowHtml(it, i) {
         <div style="font-weight:500">${escapeHtml(it.produto||'—')}</div>
         <div style="font-size:11px;color:var(--muted);margin-top:2px">${sku ? 'SKU ' + escapeHtml(sku) : ''}</div>
       </td>
-      <td><input type="text" data-field="un" value="${escapeHtml(it.un||'un')}" maxlength="4" style="text-align:center;width:100%" oninput="_ocItemSetField(${i},'un',this.value)"></td>
-      <td><input type="number" data-field="qtd" value="${parseInt(it.qtd)||1}" step="1" min="1" inputmode="numeric" oninput="this.value=this.value.replace(/[^0-9]/g,'');ocItemRecalc(${i})" style="text-align:right;width:100%;min-width:80px"></td>
-      <td><input type="number" data-field="precoUni" value="${it.precoUni||0}" step="0.01" min="0" oninput="ocItemRecalc(${i})" style="text-align:right;width:100%;min-width:90px"></td>
-      <td><input type="number" data-field="ipi" value="${it.ipi||0}" step="0.01" min="0" oninput="ocItemRecalc(${i})" style="text-align:right;width:100%"></td>
-      <td><input type="number" data-field="icmsSt" value="${it.icmsSt||0}" step="0.01" min="0" oninput="ocItemRecalc(${i})" style="text-align:right;width:100%;min-width:90px"></td>
+      <td><input type="text" data-field="un" value="${escapeHtml(it.un||'un')}" maxlength="4" style="${_OC_INP}text-align:center" oninput="_ocItemSetField(${i},'un',this.value)"></td>
+      <td><input type="number" data-field="qtd" value="${parseInt(it.qtd)||1}" step="1" min="1" inputmode="numeric" oninput="this.value=this.value.replace(/[^0-9]/g,'');ocItemRecalc(${i})" style="${_OC_INP}text-align:right"></td>
+      <td><input type="number" data-field="precoUni" value="${it.precoUni||0}" step="0.01" min="0" oninput="ocItemRecalc(${i})" style="${_OC_INP}text-align:right"></td>
+      <td><input type="number" data-field="ipi" value="${it.ipi||0}" step="0.01" min="0" oninput="ocItemRecalc(${i})" style="${_OC_INP}text-align:right"></td>
+      <td><input type="number" data-field="icmsSt" value="${it.icmsSt||0}" step="0.01" min="0" oninput="ocItemRecalc(${i})" style="${_OC_INP}text-align:right"></td>
       <td class="num num-strong" style="text-align:right" id="oc-item-total-${i}">${brl(total)}</td>
       <td><button class="row-action-btn danger" onclick="ocRemoveItem(${i})" title="Remover">${ICONS.trash}</button></td>
     </tr>
