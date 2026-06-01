@@ -23991,28 +23991,53 @@ function abrirPerfilModal(id) {
     }
   });
 
-  const m = openModal({
-    title: editing ? `Permissões · ${editing.nome}` : 'Novo perfil de acesso',
-    size: 'xl',
-    body: `
-      <div class="field-row" style="margin-bottom:18px">
+  // Renderiza como PÁGINA dentro do módulo Usuários (não mais modal — a matriz
+  // granular tem ~39 entidades e ficava apertada num modal).
+  const host = document.getElementById('usu-content');
+  if (!host) return;
+  host.innerHTML = '';
+  const page = el('<div class="fade-in"></div>');
+  host.appendChild(page);
+
+  const voltar = () => { _usuSubpage = 'perfis'; renderUsuSubmenu(); renderUsuSubpage(); };
+
+  page.innerHTML = `
+    <div class="cad-pagina-header">
+      <div>
+        <button class="cad-back-btn" id="pf-voltar">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="15 18 9 12 15 6"/></svg>
+          Voltar
+        </button>
+        <h1 class="cad-pagina-titulo">${editing ? `Permissões · <em>${escapeHtml(editing.nome)}</em>` : 'Novo <em>perfil de acesso</em>'}</h1>
+        <div class="cad-pagina-sub">Defina, por entidade, o que o perfil pode: visualizar, criar, editar, excluir e aprovar.</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:flex-start">
+        <button class="btn btn-secondary btn-sm" id="pf-cancel">Cancelar</button>
+        <button class="btn btn-primary btn-sm" id="pf-save">${ICONS.check} ${editing?'Salvar alterações':'Criar perfil'}</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px"><div class="card-body">
+      <div class="field-row">
         <div class="field"><label>Nome do perfil *</label><input type="text" id="pf-nome" value="${escapeHtml(perfil.nome)}" ${perfil.sistema?'disabled':''}></div>
         <div class="field"><label>Descrição</label><input type="text" id="pf-desc" value="${escapeHtml(perfil.descricao||'')}" placeholder="Para que serve este perfil?"></div>
       </div>
+    </div></div>
 
-      <h4 style="font-size:12px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:0 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
-        <span>Matriz de permissões por módulo</span>
+    <div class="card"><div class="card-body">
+      <h4 style="font-size:12px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <span>Matriz de permissões por entidade</span>
         <span style="display:flex;gap:6px;font-weight:400;text-transform:none;letter-spacing:0">
-          <button class="btn btn-secondary btn-sm" onclick="marcarTudoPerfil(true)">Marcar tudo</button>
-          <button class="btn btn-secondary btn-sm" onclick="marcarTudoPerfil(false)">Desmarcar tudo</button>
+          <button class="btn btn-secondary btn-sm" id="pf-marcar-tudo">Marcar tudo</button>
+          <button class="btn btn-secondary btn-sm" id="pf-desmarcar-tudo">Desmarcar tudo</button>
         </span>
       </h4>
 
-      <div class="table-wrap" style="border:1px solid var(--border);border-radius:8px;max-height:55vh;overflow-y:auto">
+      <div class="table-wrap" style="border:1px solid var(--border);border-radius:8px;max-height:64vh;overflow-y:auto">
         <table class="tbl" style="margin:0">
           <thead style="position:sticky;top:0;background:var(--surface);z-index:5">
             <tr>
-              <th style="width:32%">Módulo</th>
+              <th style="width:32%">Entidade</th>
               <th style="width:13%;text-align:center">Visualizar</th>
               <th style="width:13%;text-align:center">Criar</th>
               <th style="width:13%;text-align:center">Editar</th>
@@ -24049,34 +24074,33 @@ function abrirPerfilModal(id) {
           </tbody>
         </table>
       </div>
-    `,
-    footer: `<button class="btn btn-secondary" id="pf-cancel">Cancelar</button>
-             <button class="btn btn-primary" id="pf-save">${ICONS.check} Salvar permissões</button>`
+    </div></div>
+  `;
+
+  // Captura mudanças nos checkboxes
+  page.querySelectorAll('.perm-check').forEach(cb => {
+    cb.onchange = () => { perfil.permissoes[cb.dataset.mod][cb.dataset.acao] = cb.checked; };
   });
 
-  // Captura mudanças
-  m.root.querySelectorAll('.perm-check').forEach(cb => {
-    cb.onchange = () => {
-      perfil.permissoes[cb.dataset.mod][cb.dataset.acao] = cb.checked;
-    };
-  });
-
-  window.marcarTudoPerfil = (val) => {
+  const marcarTudo = (val) => {
     MODULOS_SISTEMA.forEach(mod => {
-      ['ver','criar','editar','excluir','aprovar'].forEach(acao => {
-        perfil.permissoes[mod.id][acao] = val;
-      });
+      ['ver','criar','editar','excluir','aprovar'].forEach(acao => { perfil.permissoes[mod.id][acao] = val; });
     });
-    m.root.querySelectorAll('.perm-check').forEach(cb => cb.checked = val);
+    page.querySelectorAll('.perm-check').forEach(cb => cb.checked = val);
   };
+  page.querySelector('#pf-marcar-tudo').onclick = () => marcarTudo(true);
+  page.querySelector('#pf-desmarcar-tudo').onclick = () => marcarTudo(false);
 
-  m.root.querySelector('#pf-cancel').onclick = () => m.close();
-  m.root.querySelector('#pf-save').onclick = async () => {
+  page.querySelector('#pf-voltar').onclick = voltar;
+  page.querySelector('#pf-cancel').onclick = voltar;
+  page.querySelector('#pf-save').onclick = async () => {
     if (!perfil.sistema) {
-      perfil.nome = m.root.querySelector('#pf-nome').value.trim();
+      perfil.nome = page.querySelector('#pf-nome').value.trim();
       if (!perfil.nome) { toast('Informe o nome', 'danger'); return; }
     }
-    perfil.descricao = m.root.querySelector('#pf-desc').value.trim();
+    perfil.descricao = page.querySelector('#pf-desc').value.trim();
+    const btn = page.querySelector('#pf-save');
+    if (btn) { btn.disabled = true; btn.style.opacity = '.6'; }
     try {
       const salvo = await repo.perfis.upsert(perfil);
       if (editing) {
@@ -24096,9 +24120,9 @@ function abrirPerfilModal(id) {
         });
       }
       toast(editing?'Permissões atualizadas':'Perfil criado');
-      m.close();
-      renderUsuSubpage();
+      voltar();
     } catch (err) {
+      if (btn) { btn.disabled = false; btn.style.opacity = ''; }
       toast('Falha ao salvar perfil: ' + (err.message || err), 'danger');
     }
   };
