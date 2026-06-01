@@ -46870,36 +46870,84 @@ function _ocRenderPagLista() {
   const host = document.getElementById('oc-pag-lista');
   if (!host || !_ocForm) return;
   if (!Array.isArray(_ocForm.pagamentos)) _ocForm.pagamentos = [];
-  // Default: 1 linha já preenchida com o total (Pix)
   if (_ocForm.pagamentos.length === 0) {
     _ocForm.pagamentos.push({ forma: 'Pix', valor: Number(_ocForm.total || 0), parcelas: 1 });
   }
-  const inp = 'padding:6px 8px;border:1px solid var(--border);border-radius:5px;font-size:12.5px;background:var(--surface)';
-  host.innerHTML = _ocForm.pagamentos.map((p, i) => {
-    const parc = _ocFormaParcelavel(p.forma);
+  const total = Number(_ocForm.total || 0);
+  const soma = _ocForm.pagamentos.reduce((s, p) => s + Number(p.valor || 0), 0);
+  const prazos = _ocParsePrazos(_ocForm.condicaoPagamento);
+  const fld = 'padding:0 10px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;background:var(--surface);height:36px;width:100%';
+  const grid = 'display:grid;grid-template-columns:1.7fr 1.3fr 1fr 34px;gap:10px;align-items:center';
+
+  const linhas = _ocForm.pagamentos.map((p, i) => {
+    const valor = Number(p.valor || 0);
+    const cartaoParc = (p.forma === 'Cartão de Crédito' || p.forma === 'Crediário');
+    const boletoCond = (p.forma === 'Boleto' && prazos.length > 0);
+    const boletoLivre = (p.forma === 'Boleto' && prazos.length === 0);
+    const n = boletoCond ? prazos.length : Math.max(1, parseInt(p.parcelas) || 1);
+
+    // Coluna de parcelas
+    let colParc;
+    if (cartaoParc || boletoLivre) {
+      colParc = `<select class="oc-pag-parc" data-i="${i}" style="${fld}">${Array.from({length:24},(_,k)=>k+1).map(np=>`<option value="${np}" ${n===np?'selected':''}>${np}x</option>`).join('')}</select>`;
+    } else if (boletoCond) {
+      colParc = `<div style="text-align:center;color:var(--ink-2);font-size:11.5px;font-weight:500">${prazos.length}x · cond.</div>`;
+    } else {
+      colParc = `<div style="text-align:center;color:var(--muted-2);font-size:11.5px">à vista</div>`;
+    }
+
+    // Prévia das parcelas
+    let preview = '';
+    if (valor > 0) {
+      if (boletoCond) {
+        preview = `${prazos.length}× de ${brl(valor / prazos.length)} · vencendo em ${prazos.join('/')} dias após a aprovação`;
+      } else if ((cartaoParc || boletoLivre) && n > 1) {
+        preview = `${n}× de ${brl(valor / n)} · mensais a partir da aprovação`;
+      }
+    }
+
     return `
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-        <select class="oc-pag-forma" data-i="${i}" style="flex:1.4;${inp}">
+      <div style="${grid};padding:9px 0;border-bottom:1px solid var(--border)">
+        <select class="oc-pag-forma" data-i="${i}" style="${fld}">
           ${OC_FORMAS_PAG.map(f => `<option ${p.forma===f?'selected':''}>${f}</option>`).join('')}
         </select>
-        <input type="number" step="0.01" min="0" class="oc-pag-valor" data-i="${i}" value="${p.valor||0}" placeholder="Valor" style="flex:1;text-align:right;${inp}">
-        ${parc
-          ? `<input type="number" min="1" class="oc-pag-parc" data-i="${i}" value="${p.parcelas||1}" title="Nº de parcelas" style="width:64px;text-align:center;${inp}">`
-          : `<span style="width:64px;text-align:center;color:var(--muted-2);font-size:11px">à vista</span>`}
-        <button class="row-action-btn danger oc-pag-rem" data-i="${i}" title="Remover">${ICONS.trash}</button>
-      </div>`;
-  }).join('') + `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+        <div style="position:relative">
+          <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:11px;pointer-events:none">R$</span>
+          <input type="number" step="0.01" min="0" class="oc-pag-valor" data-i="${i}" value="${valor || ''}" placeholder="0,00" style="${fld};text-align:right;padding-left:28px">
+        </div>
+        ${colParc}
+        <button class="row-action-btn danger oc-pag-rem" data-i="${i}" title="Remover" ${_ocForm.pagamentos.length<=1?'style="visibility:hidden"':''}>${ICONS.trash}</button>
+      </div>
+      ${preview ? `<div style="font-size:11px;color:var(--info);padding:5px 2px 2px">↳ ${preview}</div>` : ''}
+    `;
+  }).join('');
+
+  host.innerHTML = `
+    <div style="${grid};font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;padding-bottom:7px;border-bottom:1px solid var(--border)">
+      <div>Forma de pagamento</div>
+      <div style="text-align:right;padding-right:10px">Valor</div>
+      <div style="text-align:center">Parcelas</div>
+      <div></div>
+    </div>
+    ${linhas}
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px">
       <button class="btn btn-secondary btn-sm" id="oc-pag-add">${ICONS.plus} Adicionar forma</button>
-      <div id="oc-pag-prog" style="font-size:12px;font-weight:500"></div>
+      <div id="oc-pag-prog" style="font-size:12.5px;font-weight:500"></div>
     </div>`;
 
   host.querySelectorAll('.oc-pag-forma').forEach(s => s.onchange = () => { _ocForm.pagamentos[+s.dataset.i].forma = s.value; _ocRenderPagLista(); });
-  host.querySelectorAll('.oc-pag-valor').forEach(x => x.oninput = () => { _ocForm.pagamentos[+x.dataset.i].valor = Math.round((+x.value || 0) * 100) / 100; _ocAtualizarProgPag(); });
-  host.querySelectorAll('.oc-pag-parc').forEach(x => x.oninput = () => { _ocForm.pagamentos[+x.dataset.i].parcelas = Math.max(1, parseInt(x.value) || 1); });
+  host.querySelectorAll('.oc-pag-parc').forEach(s => s.onchange = () => { _ocForm.pagamentos[+s.dataset.i].parcelas = Math.max(1, parseInt(s.value) || 1); _ocRenderPagLista(); });
   host.querySelectorAll('.oc-pag-rem').forEach(b => b.onclick = () => { _ocForm.pagamentos.splice(+b.dataset.i, 1); _ocRenderPagLista(); });
+  host.querySelectorAll('.oc-pag-valor').forEach(x => {
+    x.oninput = () => { _ocForm.pagamentos[+x.dataset.i].valor = Math.round((+x.value || 0) * 100) / 100; _ocAtualizarProgPag(); };
+    x.onchange = () => _ocRenderPagLista(); // ao sair do campo, recalcula a prévia
+  });
   const add = document.getElementById('oc-pag-add');
-  if (add) add.onclick = () => { _ocForm.pagamentos.push({ forma: 'Pix', valor: 0, parcelas: 1 }); _ocRenderPagLista(); };
+  if (add) add.onclick = () => {
+    const restante = Math.round(Math.max(0, total - soma) * 100) / 100;
+    _ocForm.pagamentos.push({ forma: 'Pix', valor: restante, parcelas: 1 });
+    _ocRenderPagLista();
+  };
   _ocAtualizarProgPag();
 }
 
@@ -46961,7 +47009,9 @@ function _ocGerarContasPagar(oc) {
       prazos = _ocParsePrazos(oc.condicaoPagamento);
       if (!prazos.length) prazos = Array.from({ length: Math.max(1, parseInt(pg.parcelas) || 1) }, (_, k) => 30 * (k + 1));
     } else {
-      const n = Math.max(1, parseInt(pg.parcelas) || 1);
+      // Só Cartão de Crédito e Crediário parcelam (mensal); demais são à vista.
+      const parcelavel = (pg.forma === 'Cartão de Crédito' || pg.forma === 'Crediário');
+      const n = parcelavel ? Math.max(1, parseInt(pg.parcelas) || 1) : 1;
       prazos = n === 1 ? [0] : Array.from({ length: n }, (_, k) => 30 * k);
     }
     const n = prazos.length;
