@@ -372,22 +372,26 @@ const repo = (() => {
       window.DB.logsAcesso = logsAcesso;
     }
 
-    // Fase 2+ — jsonb entities (carregamento resiliente: tabela faltante não derruba o login)
-    const results = await Promise.all(JSONB_ENTITIES.map(async e => {
-      try {
-        return { ok: true, items: await loadJsonbEntity(_entityTable(e)) };
-      } catch (err) {
-        const msg = (err && (err.message || err.error_description || '')) + '';
-        const tabelaFaltante = /Could not find the table|relation .* does not exist|schema cache/i.test(msg);
-        if (tabelaFaltante) {
-          console.warn(`[repo] Tabela "${_entityTable(e)}" ainda não existe no Supabase — usando lista vazia. Rode a migration SQL pra criar.`);
-          _missingTables.add(_entityTable(e));
-        } else {
-          console.error(`[repo] Falha ao carregar "${_entityTable(e)}":`, err);
+    // Fase 2+ — jsonb entities + singletons EM PARALELO (uma rodada de rede a menos).
+    // Carregamento resiliente: tabela faltante não derruba o login.
+    const [results, settings] = await Promise.all([
+      Promise.all(JSONB_ENTITIES.map(async e => {
+        try {
+          return { ok: true, items: await loadJsonbEntity(_entityTable(e)) };
+        } catch (err) {
+          const msg = (err && (err.message || err.error_description || '')) + '';
+          const tabelaFaltante = /Could not find the table|relation .* does not exist|schema cache/i.test(msg);
+          if (tabelaFaltante) {
+            console.warn(`[repo] Tabela "${_entityTable(e)}" ainda não existe no Supabase — usando lista vazia. Rode a migration SQL pra criar.`);
+            _missingTables.add(_entityTable(e));
+          } else {
+            console.error(`[repo] Falha ao carregar "${_entityTable(e)}":`, err);
+          }
+          return { ok: false, items: [] };
         }
-        return { ok: false, items: [] };
-      }
-    }));
+      })),
+      loadSingletons().catch(err => { console.error('Falha ao carregar singletons:', err); return null; }),
+    ]);
     JSONB_ENTITIES.forEach((entity, i) => {
       const tbl = _entityTable(entity);
       const key = _entityKey(entity);
@@ -401,17 +405,14 @@ const repo = (() => {
       }
     });
 
-    // Singletons (configOS, counters)
-    try {
-      const settings = await loadSingletons();
+    // Singletons (configOS, counters) — já carregados acima em paralelo
+    if (settings) {
       SINGLETON_KEYS.forEach(key => {
         if (settings[key] && window.DB) {
           window.DB[key] = settings[key];
         }
         if (window.DB) _lastSyncedSingletonHash[key] = JSON.stringify(window.DB[key] || {});
       });
-    } catch (err) {
-      console.error('Falha ao carregar singletons:', err);
     }
 
     if (typeof window.saveDB === 'function') window.saveDB();

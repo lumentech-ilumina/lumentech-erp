@@ -572,6 +572,8 @@ function navigate(pageId) {
     }
   }
   currentPage = pageId;
+  // Lembra a última página pra restaurar no refresh (em vez de cair no Início)
+  try { localStorage.setItem('lumentech_erp_pagina', pageId); } catch (_) {}
   // Procura primeiro no MENU original, depois nos grupos
   let item = MENU.find(m => m.id === pageId);
   if (!item && typeof MENU_GRUPOS !== 'undefined') {
@@ -45907,7 +45909,7 @@ window.abrirDefinirNovaSenha = function() {
 
 // Entra no sistema com um usuário já autenticado. Compartilhado entre o login
 // (submit do formulário) e a restauração de sessão no refresh.
-async function entrarNoSistema(authUser) {
+async function entrarNoSistema(authUser, paginaInicial) {
   await repo.bootstrap();
   const perfilApp = DB.usuarios.find(u => u.id === authUser?.id);
   window.CURRENT_USER = perfilApp
@@ -45922,7 +45924,7 @@ async function entrarNoSistema(authUser) {
     saveDB();
   }
   window.renderNav();
-  navigate('inicio');
+  navigate(paginaInicial || 'inicio');
 }
 
 document.getElementById('login-form').addEventListener('submit', async (e) => {
@@ -45986,7 +45988,12 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     loader = document.createElement('div');
     loader.id = 'session-loader';
     loader.style.cssText = 'position:fixed;inset:0;display:grid;place-items:center;background:var(--bg);z-index:9999';
-    loader.innerHTML = '<div style="font-family:var(--serif,serif);font-size:18px;color:var(--muted)">Carregando…</div>';
+    loader.innerHTML = `
+      <style>@keyframes lt-spin{to{transform:rotate(360deg)}}@keyframes lt-fade{from{opacity:0}to{opacity:1}}</style>
+      <div style="text-align:center;animation:lt-fade .2s ease">
+        <div style="width:34px;height:34px;border:3px solid var(--surface-2);border-top-color:var(--ink);border-radius:50%;margin:0 auto 14px;animation:lt-spin .7s linear infinite"></div>
+        <div style="font-family:var(--serif,serif);font-size:13px;color:var(--muted);letter-spacing:.02em">Carregando o sistema…</div>
+      </div>`;
     document.body.appendChild(loader);
   }
 
@@ -46000,8 +46007,12 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     return;
   }
 
+  // Restaura a última página visitada (em vez de cair sempre no Início)
+  let pagina = 'inicio';
+  try { pagina = localStorage.getItem('lumentech_erp_pagina') || 'inicio'; } catch (_) {}
+
   try {
-    await entrarNoSistema(session.user);
+    await entrarNoSistema(session.user, pagina);
   } catch (err) {
     console.error('Falha ao restaurar sessão:', err);
     if (loginScreen) loginScreen.style.display = 'flex';
