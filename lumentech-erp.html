@@ -571,6 +571,8 @@ function navigate(pageId) {
       }
     }
   }
+  // Guarda a página de origem pra permitir "Voltar" em telas full-width
+  if (currentPage && currentPage !== pageId) window._paginaAnterior = currentPage;
   currentPage = pageId;
   // Lembra a última página pra restaurar no refresh (em vez de cair no Início)
   try { localStorage.setItem('lumentech_erp_pagina', pageId); } catch (_) {}
@@ -605,6 +607,13 @@ function navigate(pageId) {
   }
 
   renderPage(pageId);
+}
+
+// Volta pra página de origem (ou um fallback). Usado em telas full-width sem nav visível.
+function voltarPaginaAnterior(fallback) {
+  const ant = window._paginaAnterior;
+  if (ant && ant !== currentPage) navigate(ant);
+  else navigate(fallback || 'inicio');
 }
 
 function toggleSidebar() {
@@ -42010,16 +42019,24 @@ function _cpAppBarElement() {
   const pagas = DB.contasPagar.filter(c => statusContaPagar(c) === 'Paga').length;
   const counts = { dashboard: null, todas, abertas, vencidas, parciais, pagas };
   const bar = el(`
-    <div class="orc-status-tabs">
-      ${CP_SUBMENU.map(s => `
-        <button type="button" class="orc-status-tab ${s.id === _cpSubpage ? 'active' : ''}" data-tab="${s.id}">
-          ${TAB_ICONS[s.icon] || ICONS[s.icon] || ''}
-          <span>${escapeHtml(s.label)}</span>
-          ${counts[s.id] != null && counts[s.id] > 0 ? `<span class="orc-status-tab-count">${counts[s.id]}</span>` : ''}
-        </button>
-      `).join('')}
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:4px">
+      <button type="button" class="cad-back-btn" id="cp-voltar" style="margin:0;flex-shrink:0">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="15 18 9 12 15 6"/></svg>
+        Voltar
+      </button>
+      <div class="orc-status-tabs" style="flex:1;min-width:0">
+        ${CP_SUBMENU.map(s => `
+          <button type="button" class="orc-status-tab ${s.id === _cpSubpage ? 'active' : ''}" data-tab="${s.id}">
+            ${TAB_ICONS[s.icon] || ICONS[s.icon] || ''}
+            <span>${escapeHtml(s.label)}</span>
+            ${counts[s.id] != null && counts[s.id] > 0 ? `<span class="orc-status-tab-count">${counts[s.id]}</span>` : ''}
+          </button>
+        `).join('')}
+      </div>
     </div>
   `);
+  const voltarBtn = bar.querySelector('#cp-voltar');
+  if (voltarBtn) voltarBtn.onclick = () => voltarPaginaAnterior('financeiro');
   bar.querySelectorAll('.orc-status-tab').forEach(btn => {
     btn.onclick = () => { _cpSubpage = btn.dataset.tab; renderCPSubpage(); };
   });
