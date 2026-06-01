@@ -46616,7 +46616,7 @@ function renderOcConteudo() {
   host.appendChild(el(`
     <div class="fp-card" style="margin-bottom:14px">
       <h3 class="fp-card-title" style="margin:0 0 6px">Formas de pagamento</h3>
-      <div style="font-size:11.5px;color:var(--muted);margin-bottom:14px">Divida em uma ou mais formas. Ao <strong>aprovar</strong> a ordem, cada forma vira conta(s) a pagar <strong>em aberto</strong>. Boleto parcela conforme as <strong>Condições de pagamento</strong> (ex: 30/60/90).</div>
+      <div style="font-size:11.5px;color:var(--muted);margin-bottom:14px">Divida em uma ou mais formas. Ao <strong>aprovar</strong> a ordem, cada forma vira conta(s) a pagar <strong>em aberto</strong>. <strong>Boleto, Cartão de Crédito e Crediário</strong> permitem parcelar — cada parcela vence a cada 30 dias.</div>
       <div id="oc-pag-lista"></div>
     </div>
   `));
@@ -46940,35 +46940,23 @@ function _ocRenderPagLista() {
   }
   const total = Number(_ocForm.total || 0);
   const soma = _ocForm.pagamentos.reduce((s, p) => s + Number(p.valor || 0), 0);
-  const prazos = _ocParsePrazos(_ocForm.condicaoPagamento);
   const fld = 'padding:0 10px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;background:var(--surface);height:36px;width:100%';
   const grid = 'display:grid;grid-template-columns:1.7fr 1.3fr 1fr 34px;gap:10px;align-items:center';
 
   const linhas = _ocForm.pagamentos.map((p, i) => {
     const valor = Number(p.valor || 0);
-    const cartaoParc = (p.forma === 'Cartão de Crédito' || p.forma === 'Crediário');
-    const boletoCond = (p.forma === 'Boleto' && prazos.length > 0);
-    const boletoLivre = (p.forma === 'Boleto' && prazos.length === 0);
-    const n = boletoCond ? prazos.length : Math.max(1, parseInt(p.parcelas) || 1);
+    const parcelavel = _ocFormaParcelavel(p.forma); // Boleto, Cartão de Crédito, Crediário
+    const n = Math.max(1, parseInt(p.parcelas) || 1);
 
-    // Coluna de parcelas
-    let colParc;
-    if (cartaoParc || boletoLivre) {
-      colParc = `<select class="oc-pag-parc" data-i="${i}" style="${fld}">${Array.from({length:24},(_,k)=>k+1).map(np=>`<option value="${np}" ${n===np?'selected':''}>${np}x</option>`).join('')}</select>`;
-    } else if (boletoCond) {
-      colParc = `<div style="text-align:center;color:var(--ink-2);font-size:11.5px;font-weight:500">${prazos.length}x · cond.</div>`;
-    } else {
-      colParc = `<div style="text-align:center;color:var(--muted-2);font-size:11.5px">à vista</div>`;
-    }
+    // Coluna de parcelas — Boleto/Cartão de Crédito/Crediário têm seletor editável
+    const colParc = parcelavel
+      ? `<select class="oc-pag-parc" data-i="${i}" style="${fld}">${Array.from({length:24},(_,k)=>k+1).map(np=>`<option value="${np}" ${n===np?'selected':''}>${np}x</option>`).join('')}</select>`
+      : `<div style="text-align:center;color:var(--muted-2);font-size:11.5px">à vista</div>`;
 
     // Prévia das parcelas
     let preview = '';
-    if (valor > 0) {
-      if (boletoCond) {
-        preview = `${prazos.length}× de ${brl(valor / prazos.length)} · vencendo em ${prazos.join('/')} dias após a aprovação`;
-      } else if ((cartaoParc || boletoLivre) && n > 1) {
-        preview = `${n}× de ${brl(valor / n)} · mensais a partir da aprovação`;
-      }
+    if (valor > 0 && parcelavel && n > 1) {
+      preview = `${n}× de ${brl(valor / n)} · vencendo a cada 30 dias após a aprovação`;
     }
 
     return `
@@ -47069,16 +47057,11 @@ function _ocGerarContasPagar(oc) {
   pags.forEach(pg => {
     const valor = Number(pg.valor || 0);
     if (valor <= 0) return;
-    let prazos;
-    if (pg.forma === 'Boleto') {
-      prazos = _ocParsePrazos(oc.condicaoPagamento);
-      if (!prazos.length) prazos = Array.from({ length: Math.max(1, parseInt(pg.parcelas) || 1) }, (_, k) => 30 * (k + 1));
-    } else {
-      // Só Cartão de Crédito e Crediário parcelam (mensal); demais são à vista.
-      const parcelavel = (pg.forma === 'Cartão de Crédito' || pg.forma === 'Crediário');
-      const n = parcelavel ? Math.max(1, parseInt(pg.parcelas) || 1) : 1;
-      prazos = n === 1 ? [0] : Array.from({ length: n }, (_, k) => 30 * k);
-    }
+    // Boleto/Cartão de Crédito/Crediário parcelam pelo nº escolhido, vencendo a
+    // cada 30 dias (30/60/90...). Demais formas são à vista (vence na aprovação).
+    const parcelavel = _ocFormaParcelavel(pg.forma);
+    const np = parcelavel ? Math.max(1, parseInt(pg.parcelas) || 1) : 1;
+    const prazos = parcelavel ? Array.from({ length: np }, (_, k) => 30 * (k + 1)) : [0];
     const n = prazos.length;
     const valorParc = Math.round((valor / n) * 100) / 100;
     prazos.forEach((d, i) => {
