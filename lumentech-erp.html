@@ -46383,7 +46383,7 @@ function renderOcConteudo() {
         <table class="tbl" id="oc-itens-tbl" style="font-size:11.5px">
           <thead>
             <tr>
-              <th style="width:30px"></th>
+              <th style="width:50px"></th>
               <th>Produto</th>
               <th style="width:60px">UN</th>
               <th style="width:95px">Qtd</th>
@@ -46462,16 +46462,27 @@ function renderOcConteudo() {
 
 function _ocItemRowHtml(it, i) {
   const total = (Number(it.qtd)||0) * (Number(it.precoUni)||0) * (1 + (Number(it.ipi)||0)/100) + (Number(it.icmsSt)||0);
+  // Espelha a lista do módulo Produtos: miniatura + nome forte + SKU.
+  const prod = (DB.produtos||[]).find(p => p.id === it.produtoId) || null;
+  const img = (prod?.imagens && prod.imagens[0]) || '';
+  const sku = it.sku || prod?.sku || '';
   return `
     <tr data-row="${i}">
-      <td style="text-align:center;color:var(--muted);font-size:10px">${i+1}</td>
-      <td><input type="text" list="oc-prod-list" data-field="produto" value="${escapeHtml(it.produto||'')}" placeholder="Nome ou SKU" onchange="ocItemProdChange(${i}, this)" style="width:100%"></td>
+      <td onclick="event.stopPropagation()">
+        <div id="oc-item-img-${i}" style="width:36px;height:36px;border-radius:6px;overflow:hidden;background:var(--surface-2);display:grid;place-items:center;color:var(--muted-2)">
+          ${img ? `<img src="${img}" style="width:100%;height:100%;object-fit:cover">` : ICONS.box}
+        </div>
+      </td>
+      <td>
+        <input type="text" list="oc-prod-list" data-field="produto" value="${escapeHtml(it.produto||'')}" placeholder="Nome ou SKU" onchange="ocItemProdChange(${i}, this)" style="width:100%;font-weight:500">
+        <div id="oc-item-sku-${i}" style="font-size:11px;color:var(--muted);margin-top:2px">${sku ? 'SKU ' + escapeHtml(sku) : ''}</div>
+      </td>
       <td><input type="text" data-field="un" value="${escapeHtml(it.un||'un')}" maxlength="4" style="text-align:center;width:100%" oninput="_ocItemSetField(${i},'un',this.value)"></td>
       <td><input type="number" data-field="qtd" value="${parseInt(it.qtd)||1}" step="1" min="1" inputmode="numeric" oninput="this.value=this.value.replace(/[^0-9]/g,'');ocItemRecalc(${i})" style="text-align:right;width:100%;min-width:80px"></td>
       <td><input type="number" data-field="precoUni" value="${it.precoUni||0}" step="0.01" min="0" oninput="ocItemRecalc(${i})" style="text-align:right;width:100%;min-width:90px"></td>
       <td><input type="number" data-field="ipi" value="${it.ipi||0}" step="0.01" min="0" oninput="ocItemRecalc(${i})" style="text-align:right;width:100%"></td>
       <td><input type="number" data-field="icmsSt" value="${it.icmsSt||0}" step="0.01" min="0" oninput="ocItemRecalc(${i})" style="text-align:right;width:100%;min-width:90px"></td>
-      <td style="text-align:right;font-weight:500" id="oc-item-total-${i}">${brl(total)}</td>
+      <td class="num num-strong" style="text-align:right" id="oc-item-total-${i}">${brl(total)}</td>
       <td><button class="row-action-btn danger" onclick="ocRemoveItem(${i})" title="Remover">${ICONS.trash}</button></td>
     </tr>
   `;
@@ -46510,6 +46521,14 @@ function ocItemProdChange(idx, inputEl) {
       const unInp = row.querySelector('[data-field="un"]');     if (unInp) unInp.value = it.un;
       const preInp = row.querySelector('[data-field="precoUni"]'); if (preInp) preInp.value = it.precoUni;
     }
+    // Atualiza miniatura + SKU pra refletir o produto escolhido (igual lista de Produtos)
+    const prod = (DB.produtos||[]).find(p => p.id === it.produtoId) || null;
+    const imgEl = document.getElementById(`oc-item-img-${idx}`);
+    if (imgEl) imgEl.innerHTML = (prod?.imagens && prod.imagens[0])
+      ? `<img src="${prod.imagens[0]}" style="width:100%;height:100%;object-fit:cover">`
+      : ICONS.box;
+    const skuEl = document.getElementById(`oc-item-sku-${idx}`);
+    if (skuEl) skuEl.textContent = it.sku ? 'SKU ' + it.sku : '';
   }
   it.produto = v;
   ocItemRecalc(idx);
