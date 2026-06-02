@@ -46587,6 +46587,54 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     if (loader) loader.remove();
   }
 })();
+
+// =====================================================================
+// AUTO-REFRESH — mostra mudanças de outros usuários SEM recarregar.
+// A cada 60s busca os dados frescos e atualiza a tela SE algo mudou E o
+// usuário NÃO estiver editando (modal/form/campo em foco) — pra nunca
+// apagar o que está sendo digitado. Pausa quando a aba não está visível.
+// =====================================================================
+let _autoRefreshRodando = false;
+function _appOcupadoEditando() {
+  const mr = document.getElementById('modal-root');
+  if (mr && mr.children.length > 0) return true;          // modal aberto
+  if (document.getElementById('cad-form-host')) return true; // form de cadastro em página
+  const ae = document.activeElement;
+  if (ae && (/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) || ae.isContentEditable)) return true;
+  return false;
+}
+function _sigDBGlobal() {
+  const d = window.DB || {}; let s = '';
+  for (const k in d) { if (Array.isArray(d[k])) s += k + d[k].length + '|'; }
+  try { s += 'c' + JSON.stringify(d.counters || {}); } catch (_) {}
+  return s;
+}
+async function _autoRefreshTick() {
+  if (_autoRefreshRodando) return;
+  if (!window.CURRENT_USER) return;            // sem login
+  if (document.hidden) return;                 // aba em segundo plano
+  if (_appOcupadoEditando()) return;           // não atrapalha edição
+  if (!window.repo?.bootstrap) return;
+  _autoRefreshRodando = true;
+  const sigAntes = _sigDBGlobal();
+  try {
+    await window.repo.bootstrap();
+    if (_appOcupadoEditando()) return;         // começou a editar durante o fetch → não re-renderiza
+    if (_sigDBGlobal() !== sigAntes) {
+      window.renderNav();
+      if (typeof renderPage === 'function') renderPage(currentPage);
+    }
+  } catch (e) {
+    console.warn('Auto-refresh falhou:', e);
+  } finally {
+    _autoRefreshRodando = false;
+  }
+}
+if (!window._autoRefreshHooked) {
+  window._autoRefreshHooked = true;
+  setInterval(_autoRefreshTick, 60000);
+}
+
 // =====================================================
 // FINANCEIRO · CRÉDITOS DE CLIENTES (view do financeiro: editar/zerar/vencidos em vermelho)
 // =====================================================
