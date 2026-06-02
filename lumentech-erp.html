@@ -42519,8 +42519,7 @@ function renderCPSubpage() {
 // =====================================================
 function renderCPDashboard(parent) {
   pageHead(parent, 'Contas a pagar · <em>Dashboard</em>', 'Visão financeira de despesas',
-    `<button class="btn btn-secondary btn-sm" onclick="voltarPaginaAnterior('financeiro')">${ICONS['arrow-left']||'←'} Voltar</button>
-     <button class="btn btn-primary btn-sm" onclick="abrirCadastroPagina('contas-pagar', null)">${ICONS.plus} Nova conta</button>`);
+    `<button class="btn btn-primary btn-sm" onclick="abrirCadastroPagina('contas-pagar', null)">${ICONS.plus} Nova conta</button>`);
 
   const hoje = isoToday();
   const todas = DB.contasPagar;
@@ -42674,8 +42673,7 @@ function renderCPListagem(parent, filtroFn) {
   };
 
   pageHead(parent, titulos[_cpSubpage] || 'Contas a pagar', '',
-    `<button class="btn btn-secondary btn-sm" onclick="voltarPaginaAnterior('financeiro')">${ICONS['arrow-left']||'←'} Voltar</button>
-     <button class="btn btn-primary btn-sm" onclick="abrirCadastroPagina('contas-pagar', null)">${ICONS.plus} Nova conta</button>`);
+    `<button class="btn btn-primary btn-sm" onclick="abrirCadastroPagina('contas-pagar', null)">${ICONS.plus} Nova conta</button>`);
 
   const baseList = DB.contasPagar.filter(filtroFn);
   if (baseList.length === 0) {
