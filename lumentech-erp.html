@@ -6700,7 +6700,8 @@ function renderMetas(parent) {
 
   pageHead(parent, 'Metas <em>comerciais</em>', 'Desempenho da equipe em tempo real · realizado vs meta',
     `<button class="btn btn-secondary btn-sm" onclick="_metasRenderConteudo()">${ICONS['rotate']||''} Atualizar</button>
-     <button class="btn btn-primary btn-sm" onclick="abrirCadastroMeta()">${ICONS.check} Definir metas do mês</button>`);
+     <button class="btn btn-secondary btn-sm" onclick="abrirPlanejarAno()">${ICONS.chart||''} Planejar ano</button>
+     <button class="btn btn-primary btn-sm" onclick="abrirCadastroMeta()">${ICONS.check} Metas do mês</button>`);
 
   // Filtros
   const vendedores = _metasVendedores();
@@ -6781,8 +6782,9 @@ function _metasRenderConteudo() {
   const vaiAtingir = metaFat > 0 && projecao >= metaFat;
   const noRitmo = metaFat === 0 || (diasUteisTotais > 0 && realizado >= (metaFat / diasUteisTotais) * diasUteisDecorridos);
 
-  // Meta anual
-  const metaAno = Number(_metaGet(String(ano))?.faturamento || 0);
+  // Meta anual = soma das metas mensais do ano (fallback: meta anual fixa antiga)
+  const metaAno = (DB.metasComerciais || []).filter(x => x.mes && x.mes.startsWith(String(ano) + '-')).reduce((s, x) => s + Number(x.faturamento || 0), 0)
+    || Number(_metaGet(String(ano))?.faturamento || 0);
   const realizadoAno = (DB.pedidos || []).filter(p => { const d = _pedData(p); return _pedValido(p) && vendOk(p) && d && d.getFullYear() === ano; }).reduce((s, p) => s + Number(p.valor || 0), 0);
   const pctAno = metaAno > 0 ? (realizadoAno / metaAno) * 100 : 0;
 
@@ -6951,10 +6953,7 @@ function abrirCadastroMeta() {
     title: `Metas de ${mes}`,
     size: 'lg',
     body: `
-      <div style="background:var(--surface-2);border-radius:8px;padding:12px 14px;margin-bottom:16px">
-        <div class="field" style="margin:0"><label style="font-weight:500">Meta ANUAL de faturamento ${ano} (R$)</label><input type="number" step="0.01" min="0" id="meta-anual" value="${anualRec?.faturamento || ''}" placeholder="0,00"></div>
-        <div style="font-size:11px;color:var(--muted);margin-top:6px">Vale pro ano inteiro — você edita por qualquer mês.</div>
-      </div>
+      <div style="font-size:11.5px;color:var(--muted);margin-bottom:14px">Aqui você detalha o mês <strong>${mes}</strong> (pedidos, novos clientes, por vendedor). Pra definir o <strong>faturamento de cada mês do ano</strong>, use o botão <strong>“Planejar ano”</strong>.</div>
       <h4 style="font-size:12px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:0 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border)">Metas de ${mes}</h4>
       <div class="field-row">
         <div class="field"><label>Meta de faturamento (R$) *</label><input type="number" step="0.01" min="0" id="meta-fat" value="${existente?.faturamento || ''}" placeholder="0,00"></div>
@@ -6988,14 +6987,65 @@ function abrirCadastroMeta() {
     };
     DB.metasComerciais = (DB.metasComerciais || []).filter(x => x.mes !== mes);
     DB.metasComerciais.push(rec);
-    // Meta anual (registro separado, mes = 'YYYY')
-    const valAnual = Number(m.root.querySelector('#meta-anual').value || 0);
-    DB.metasComerciais = DB.metasComerciais.filter(x => x.mes !== ano);
-    if (valAnual > 0) {
-      DB.metasComerciais.push({ id: anualRec?.id || ('meta_ano_' + Date.now()), mes: ano, tipo: 'anual', faturamento: valAnual, atualizadoEm: new Date().toISOString() });
-    }
     saveDB();
     toast('Metas salvas');
+    m.close();
+    _metasRenderConteudo();
+  };
+}
+
+// Planejamento do ano: meta de faturamento mês a mês (a meta do ano é a soma).
+function abrirPlanejarAno() {
+  if (typeof exigeAcesso === 'function' && !exigeAcesso('crm', 'editar')) return;
+  if (!Array.isArray(DB.metasComerciais)) DB.metasComerciais = [];
+  const ano = (_metasFiltro?.mes || _metaMesAtualStr()).split('-')[0];
+  const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+  const m = openModal({
+    title: `Planejar faturamento · ${ano}`,
+    size: 'lg',
+    body: `
+      <div style="font-size:11.5px;color:var(--muted);margin-bottom:14px">Defina a meta de faturamento de cada mês — a <strong>meta do ano</strong> é a soma. Pode deixar valores diferentes em cada mês.</div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px 18px">
+        ${meses.map((nome, i) => {
+          const mk = ano + '-' + String(i + 1).padStart(2, '0');
+          const val = Number(_metaGet(mk)?.faturamento || 0);
+          return `<div style="display:flex;align-items:center;gap:10px">
+            <label style="width:88px;font-size:12.5px;color:var(--ink-2)">${nome}</label>
+            <div style="position:relative;flex:1">
+              <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:11px;pointer-events:none">R$</span>
+              <input type="number" step="0.01" min="0" class="pa-mes" data-mk="${mk}" value="${val || ''}" placeholder="0,00" style="width:100%;box-sizing:border-box;padding:8px 10px 8px 28px;border:1px solid var(--border);border-radius:6px;text-align:right;font-size:12.5px;background:var(--surface)">
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+        <span style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Meta do ano (soma)</span>
+        <strong id="pa-total" style="font-family:var(--serif);font-size:22px">R$ 0,00</strong>
+      </div>
+    `,
+    footer: `<button class="btn btn-secondary" id="pa-cancel">Cancelar</button><button class="btn btn-primary" id="pa-save">${ICONS.check} Salvar planejamento</button>`
+  });
+  const recalc = () => {
+    const total = Array.from(m.root.querySelectorAll('.pa-mes')).reduce((s, i) => s + Number(i.value || 0), 0);
+    const t = m.root.querySelector('#pa-total'); if (t) t.textContent = brl(total);
+  };
+  m.root.querySelectorAll('.pa-mes').forEach(i => i.oninput = recalc);
+  recalc();
+  m.root.querySelector('#pa-cancel').onclick = () => m.close();
+  m.root.querySelector('#pa-save').onclick = () => {
+    m.root.querySelectorAll('.pa-mes').forEach(inp => {
+      const mk = inp.dataset.mk;
+      const val = Number(inp.value || 0);
+      const existente = _metaGet(mk);
+      if (existente) {
+        existente.faturamento = val; // preserva pedidos/novos clientes/por vendedor
+        existente.atualizadoEm = new Date().toISOString();
+      } else if (val > 0) {
+        DB.metasComerciais.push({ id: 'meta_' + mk, mes: mk, faturamento: val, qtdPedidos: 0, novosClientes: 0, metasVendedor: [], atualizadoEm: new Date().toISOString() });
+      }
+    });
+    saveDB();
+    toast('Planejamento anual salvo');
     m.close();
     _metasRenderConteudo();
   };
