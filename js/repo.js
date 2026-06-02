@@ -398,7 +398,10 @@ const repo = (() => {
     // Entidades de CONFIG que têm valores padrão embutidos: se o servidor vier
     // vazio (tabela recém-criada ou ausente), NÃO esvazia — mantém os padrões
     // locais (eles sobem no próximo saveDB). Evita quebrar kanbans.
-    const _backedByDefaults = new Set(['osStatus', 'separacaoEtapas']);
+    const _backedByDefaults = new Set([
+      'osStatus', 'separacaoEtapas', 'etapasProducao', 'motivosTroca', 'motivosDevolucao',
+      'segmentosVendas', 'categoriasProduto', 'categoriasForn', 'tabelasPreco', 'funis',
+    ]);
     JSONB_ENTITIES.forEach((entity, i) => {
       const tbl = _entityTable(entity);
       const key = _entityKey(entity);
