@@ -42494,8 +42494,13 @@ function renderCPSubpage() {
   const wrap = el('<div class="fade-in"></div>');
   c.appendChild(wrap);
 
+  // App bar SEMPRE no topo — navegação entre as visões (Dashboard/Todas/Em aberto/...)
+  wrap.appendChild(_cpAppBarElement());
+
+  const corpo = el('<div></div>');
+  wrap.appendChild(corpo);
   if (_cpSubpage === 'dashboard') {
-    renderCPDashboard(wrap);
+    renderCPDashboard(corpo);
   } else {
     const filtros = {
       todas:    () => true,
@@ -42504,14 +42509,8 @@ function renderCPSubpage() {
       parciais: (c) => statusContaPagar(c) === 'Parcial',
       pagas:    (c) => statusContaPagar(c) === 'Paga',
     };
-    renderCPListagem(wrap, filtros[_cpSubpage] || filtros.todas);
+    renderCPListagem(corpo, filtros[_cpSubpage] || filtros.todas);
   }
-
-  // App bar entra logo APÓS o título da página
-  const head = wrap.querySelector('.page-head');
-  const tabs = _cpAppBarElement();
-  if (head && head.parentNode) head.parentNode.insertBefore(tabs, head.nextSibling);
-  else wrap.insertBefore(tabs, wrap.firstChild);
 }
 
 // =====================================================
