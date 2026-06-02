@@ -42025,24 +42025,16 @@ function _cpAppBarElement() {
   const pagas = DB.contasPagar.filter(c => statusContaPagar(c) === 'Paga').length;
   const counts = { dashboard: null, todas, abertas, vencidas, parciais, pagas };
   const bar = el(`
-    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:4px">
-      <button type="button" class="cad-back-btn" id="cp-voltar" style="margin:0;flex-shrink:0">
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="15 18 9 12 15 6"/></svg>
-        Voltar
-      </button>
-      <div class="orc-status-tabs" style="flex:1;min-width:0">
-        ${CP_SUBMENU.map(s => `
-          <button type="button" class="orc-status-tab ${s.id === _cpSubpage ? 'active' : ''}" data-tab="${s.id}">
-            ${TAB_ICONS[s.icon] || ICONS[s.icon] || ''}
-            <span>${escapeHtml(s.label)}</span>
-            ${counts[s.id] != null && counts[s.id] > 0 ? `<span class="orc-status-tab-count">${counts[s.id]}</span>` : ''}
-          </button>
-        `).join('')}
-      </div>
+    <div class="orc-status-tabs">
+      ${CP_SUBMENU.map(s => `
+        <button type="button" class="orc-status-tab ${s.id === _cpSubpage ? 'active' : ''}" data-tab="${s.id}">
+          ${TAB_ICONS[s.icon] || ICONS[s.icon] || ''}
+          <span>${escapeHtml(s.label)}</span>
+          ${counts[s.id] != null && counts[s.id] > 0 ? `<span class="orc-status-tab-count">${counts[s.id]}</span>` : ''}
+        </button>
+      `).join('')}
     </div>
   `);
-  const voltarBtn = bar.querySelector('#cp-voltar');
-  if (voltarBtn) voltarBtn.onclick = () => voltarPaginaAnterior('financeiro');
   bar.querySelectorAll('.orc-status-tab').forEach(btn => {
     btn.onclick = () => { _cpSubpage = btn.dataset.tab; renderCPSubpage(); };
   });
@@ -42119,7 +42111,8 @@ function renderCPSubpage() {
 // =====================================================
 function renderCPDashboard(parent) {
   pageHead(parent, 'Contas a pagar · <em>Dashboard</em>', 'Visão financeira de despesas',
-    `<button class="btn btn-primary btn-sm" onclick="abrirCadastroPagina('contas-pagar', null)">${ICONS.plus} Nova conta</button>`);
+    `<button class="btn btn-secondary btn-sm" onclick="voltarPaginaAnterior('financeiro')">${ICONS['arrow-left']||'←'} Voltar</button>
+     <button class="btn btn-primary btn-sm" onclick="abrirCadastroPagina('contas-pagar', null)">${ICONS.plus} Nova conta</button>`);
 
   const hoje = isoToday();
   const todas = DB.contasPagar;
@@ -42273,7 +42266,8 @@ function renderCPListagem(parent, filtroFn) {
   };
 
   pageHead(parent, titulos[_cpSubpage] || 'Contas a pagar', '',
-    `<button class="btn btn-primary btn-sm" onclick="abrirCadastroPagina('contas-pagar', null)">${ICONS.plus} Nova conta</button>`);
+    `<button class="btn btn-secondary btn-sm" onclick="voltarPaginaAnterior('financeiro')">${ICONS['arrow-left']||'←'} Voltar</button>
+     <button class="btn btn-primary btn-sm" onclick="abrirCadastroPagina('contas-pagar', null)">${ICONS.plus} Nova conta</button>`);
 
   const baseList = DB.contasPagar.filter(filtroFn);
   if (baseList.length === 0) {
