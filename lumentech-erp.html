@@ -41158,62 +41158,113 @@ function renderFormTransportadorasPagina(id) {
   const host = $('#cad-form-host');
   if (!host) return;
 
+  const ev = (k) => editing ? escapeHtml(editing[k] || '') : '';
   host.innerHTML = `
     <div class="fp-card">
       <h3 class="fp-card-title">Cadastro da transportadora</h3>
 
-      <!-- Dados gerais -->
-      <div class="fp-field"><label>Nome / Razão social *</label><input type="text" id="tp-nome" value="${editing?escapeHtml(editing.nome):''}" placeholder="Ex: Transportadora Veloz LTDA" autofocus></div>
+      <!-- CNPJ primeiro: digite e os dados são puxados automaticamente -->
       <div class="fp-grid-2">
-        <div class="fp-field"><label>CNPJ</label><input type="text" id="tp-cnpj" value="${editing?escapeHtml(editing.cnpj||''):''}" placeholder="00.000.000/0000-00"></div>
-        <div class="fp-field"><label>Inscrição Estadual</label><input type="text" id="tp-ie" value="${editing?escapeHtml(editing.ie||''):''}"></div>
+        <div class="fp-field">
+          <label>CNPJ <span style="font-weight:400;color:var(--muted);font-size:11px">· digite pra puxar os dados</span></label>
+          <input type="text" id="tp-cnpj" value="${ev('cnpj')}" placeholder="00.000.000/0000-00" autofocus>
+        </div>
+        <div class="fp-field"><label>Inscrição Estadual</label><input type="text" id="tp-ie" value="${ev('ie')}"></div>
       </div>
+
+      <!-- Dados gerais -->
+      <div class="fp-field"><label>Razão social *</label><input type="text" id="tp-nome" value="${ev('nome')}" placeholder="Ex: Transportadora Veloz LTDA"></div>
+      <div class="fp-field"><label>Nome fantasia</label><input type="text" id="tp-fantasia" value="${ev('nomeFantasia')}"></div>
 
       <!-- Contato -->
       <div class="fp-grid-2">
-        <div class="fp-field"><label>Telefone</label><input type="text" id="tp-tel" value="${editing?escapeHtml(editing.telefone||''):''}"></div>
-        <div class="fp-field"><label>E-mail</label><input type="email" id="tp-email" value="${editing?escapeHtml(editing.email||''):''}"></div>
+        <div class="fp-field"><label>Telefone</label><input type="text" id="tp-tel" value="${ev('telefone')}"></div>
+        <div class="fp-field"><label>E-mail</label><input type="email" id="tp-email" value="${ev('email')}"></div>
       </div>
 
-      <!-- Atuação -->
+      <!-- Endereço completo -->
+      <h4 style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:16px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border)">Endereço</h4>
       <div class="fp-grid-2">
-        <div class="fp-field"><label>Cidade / UF base</label><input type="text" id="tp-cidade" value="${editing?escapeHtml(editing.cidade||''):''}" placeholder="Fortaleza/CE"></div>
+        <div class="fp-field"><label>CEP</label><input type="text" id="tp-cep" value="${ev('cep')}" placeholder="00000-000"></div>
+        <div class="fp-field"><label>Bairro</label><input type="text" id="tp-bairro" value="${ev('bairro')}"></div>
+      </div>
+      <div class="fp-grid-2">
+        <div class="fp-field"><label>Logradouro</label><input type="text" id="tp-logradouro" value="${ev('logradouro')}"></div>
+        <div class="fp-field"><label>Número</label><input type="text" id="tp-numero" value="${ev('numero')}"></div>
+      </div>
+      <div class="fp-grid-2">
+        <div class="fp-field"><label>Complemento</label><input type="text" id="tp-complemento" value="${ev('complemento')}"></div>
+        <div class="fp-grid-2" style="gap:10px">
+          <div class="fp-field" style="margin:0"><label>Cidade</label><input type="text" id="tp-municipio" value="${ev('municipio')}"></div>
+          <div class="fp-field" style="margin:0"><label>UF</label><input type="text" id="tp-uf" maxlength="2" value="${ev('uf')}" style="text-transform:uppercase"></div>
+        </div>
+      </div>
+
+      <!-- Atuação + status -->
+      <div class="fp-grid-2">
         <div class="fp-field"><label>Cobertura</label>
           <select id="tp-cobertura">
             <option value="">— Selecione —</option>
             ${['Nacional','Regional','Estadual','Local','Internacional'].map(c => `<option ${editing?.cobertura===c?'selected':''}>${c}</option>`).join('')}
           </select>
         </div>
+        <div class="fp-field"><label>Status</label>
+          <select id="tp-ativo">
+            <option value="1" ${editing?.ativo!==false?'selected':''}>● Ativo</option>
+            <option value="0" ${editing?.ativo===false?'selected':''}>● Inativo</option>
+          </select>
+        </div>
       </div>
-
-      <!-- Status + observações -->
-      <div class="fp-field">
-        <label>Status</label>
-        <select id="tp-ativo">
-          <option value="1" ${editing?.ativo!==false?'selected':''}>● Ativo</option>
-          <option value="0" ${editing?.ativo===false?'selected':''}>● Inativo</option>
-        </select>
-      </div>
-      <div class="fp-field"><label>Observações</label><textarea id="tp-obs" rows="3">${editing?escapeHtml(editing.obs||''):''}</textarea></div>
+      <div class="fp-field"><label>Observações</label><textarea id="tp-obs" rows="3">${ev('obs')}</textarea></div>
     </div>
   `;
 
   applyMask(host.querySelector('#tp-tel'), maskPhone);
-  applyMask(host.querySelector('#tp-cnpj'), maskCNPJ);
+
+  // Auto-preenchimento por CNPJ (razão social, fantasia, contato e endereço completo)
+  const cnpjInp = host.querySelector('#tp-cnpj');
+  if (cnpjInp && typeof setupAutoCNPJ === 'function') {
+    setupAutoCNPJ(cnpjInp, (d) => {
+      const fill = (sel, val) => { const el = host.querySelector(sel); if (el && (val || val === 0)) el.value = val; };
+      const nomeEl = host.querySelector('#tp-nome');
+      if (nomeEl && !nomeEl.value.trim()) nomeEl.value = d.razaoSocial || '';
+      fill('#tp-fantasia', d.nomeFantasia);
+      fill('#tp-tel', d.telefone);
+      fill('#tp-email', d.email);
+      fill('#tp-cep', d.cep);
+      fill('#tp-logradouro', d.logradouro);
+      fill('#tp-numero', d.numero);
+      fill('#tp-complemento', d.complemento);
+      fill('#tp-bairro', d.bairro);
+      fill('#tp-municipio', d.municipio);
+      fill('#tp-uf', (d.uf || '').toUpperCase());
+    });
+  } else if (cnpjInp) {
+    applyMask(cnpjInp, maskCNPJ);
+  }
 
   $('#cad-pg-save').onclick = () => {
-    const nome = host.querySelector('#tp-nome').value.trim();
-    if (!nome) { toast('Informe o nome', 'danger'); return; }
+    const q = (sel) => host.querySelector(sel).value.trim();
+    const nome = q('#tp-nome');
+    if (!nome) { toast('Informe a razão social', 'danger'); return; }
+    const municipio = q('#tp-municipio'), uf = q('#tp-uf').toUpperCase();
     const data = {
       id: editing?.id || ('TRA' + String(DB.transportadoras.length + 1).padStart(4,'0')),
       nome,
-      cnpj: host.querySelector('#tp-cnpj').value.trim(),
-      ie: host.querySelector('#tp-ie').value.trim(),
-      telefone: host.querySelector('#tp-tel').value.trim(),
-      email: host.querySelector('#tp-email').value.trim(),
-      cidade: host.querySelector('#tp-cidade').value.trim(),
+      nomeFantasia: q('#tp-fantasia'),
+      cnpj: q('#tp-cnpj'),
+      ie: q('#tp-ie'),
+      telefone: q('#tp-tel'),
+      email: q('#tp-email'),
+      cep: q('#tp-cep'),
+      logradouro: q('#tp-logradouro'),
+      numero: q('#tp-numero'),
+      complemento: q('#tp-complemento'),
+      bairro: q('#tp-bairro'),
+      municipio, uf,
+      cidade: (municipio && uf) ? `${municipio}/${uf}` : (municipio || (editing?.cidade || '')),
       cobertura: host.querySelector('#tp-cobertura').value,
-      obs: host.querySelector('#tp-obs').value.trim(),
+      obs: q('#tp-obs'),
       ativo: host.querySelector('#tp-ativo').value === '1',
       criadoEm: editing?.criadoEm || new Date().toISOString(),
     };
