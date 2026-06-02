@@ -235,6 +235,7 @@ const repo = (() => {
     { table: 'pontos_comerciais',  key: 'pontosComerciais' },
     { table: 'visitas_campo',      key: 'visitasCampo' },
     { table: 'segmentos_vendas',   key: 'segmentosVendas' },
+    { table: 'metas_comerciais',   key: 'metasComerciais' },
   ];
 
   function _entityTable(e) { return typeof e === 'string' ? e : e.table; }
@@ -398,9 +399,14 @@ const repo = (() => {
     // Entidades de CONFIG que têm valores padrão embutidos: se o servidor vier
     // vazio (tabela recém-criada ou ausente), NÃO esvazia — mantém os padrões
     // locais (eles sobem no próximo saveDB). Evita quebrar kanbans.
+    // Entidades que NÃO devem ser esvaziadas se o servidor vier vazio:
+    // - config com padrões embutidos;
+    // - 'metasComerciais': metas lançadas localmente antes do sync — preserva e
+    //   sobe pro servidor no próximo saveDB (em vez de perder o que foi digitado).
     const _backedByDefaults = new Set([
       'osStatus', 'separacaoEtapas', 'etapasProducao', 'motivosTroca', 'motivosDevolucao',
       'segmentosVendas', 'categoriasProduto', 'categoriasForn', 'tabelasPreco', 'funis',
+      'metasComerciais',
     ]);
     JSONB_ENTITIES.forEach((entity, i) => {
       const tbl = _entityTable(entity);
