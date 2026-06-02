@@ -236,6 +236,9 @@ const repo = (() => {
     { table: 'visitas_campo',      key: 'visitasCampo' },
     { table: 'segmentos_vendas',   key: 'segmentosVendas' },
     { table: 'metas_comerciais',   key: 'metasComerciais' },
+    { table: 'centros_custo',        key: 'centrosCusto' },
+    { table: 'separacoes',           key: 'separacoes' },
+    { table: 'locais_armazenamento', key: 'locaisArmazenamento' },
   ];
 
   function _entityTable(e) { return typeof e === 'string' ? e : e.table; }
@@ -243,7 +246,9 @@ const repo = (() => {
 
   // Singletons: configurações que não são arrays. Armazenadas em app_settings (chave/valor).
   // DB[key] é um objeto, não array.
-  const SINGLETON_KEYS = ['configOS', 'counters', 'empresa'];
+  // automacoesProducao e dreAjustes são objetos de config (não-arrays) → app_settings,
+  // pra que a configuração de automações e os ajustes de DRE apareçam pra equipe.
+  const SINGLETON_KEYS = ['configOS', 'counters', 'empresa', 'automacoesProducao', 'dreAjustes'];
   const _lastSyncedSingletonHash = {};
 
   // Snapshot dos IDs presentes no servidor (por entidade). Usado pra detectar deletes locais.
@@ -407,6 +412,8 @@ const repo = (() => {
       'osStatus', 'separacaoEtapas', 'etapasProducao', 'motivosTroca', 'motivosDevolucao',
       'segmentosVendas', 'categoriasProduto', 'categoriasForn', 'tabelasPreco', 'funis',
       'metasComerciais',
+      // coleções da equipe que eram local-only (preserva o que já existe e sobe no próximo save)
+      'centrosCusto', 'separacoes', 'locaisArmazenamento',
     ]);
     JSONB_ENTITIES.forEach((entity, i) => {
       const tbl = _entityTable(entity);
