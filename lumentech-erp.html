@@ -43972,9 +43972,12 @@ function excluirContaReceber(id) {
     title: `Excluir ${c.id}?`,
     message: `<p>Excluir conta <strong>${escapeHtml(c.cliente||'—')}</strong> · ${brl(c.valor||0)}?</p>${c.pedidoId?`<p style="font-size:11.5px;color:var(--muted);margin-top:8px">⚠ Vinculada ao pedido ${c.pedidoId} — o pedido NÃO será afetado.</p>`:''}`,
     danger: true,
-    onConfirm: () => {
+    onConfirm: async () => {
       DB.contasReceber = DB.contasReceber.filter(x => x.id !== id);
       saveDB();
+      // Sincroniza a exclusão NA HORA (sem esperar o debounce) — senão, ao
+      // recarregar antes do sync subir, o servidor mantém a conta e ela "volta".
+      try { if (window.repo?.sync?.all) await window.repo.sync.all(); } catch (e) { console.warn('Falha ao sincronizar exclusão:', e); }
       toast(`Conta ${id} excluída`, 'success');
       renderPage(currentPage);
     }
