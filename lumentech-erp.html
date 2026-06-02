@@ -155,11 +155,11 @@
 
 <!-- ?v=... = cache-busting. Bump a versão (data-seq) a cada mudança de JS pra
      a equipe receber o novo código no F5 normal (sem precisar de Ctrl+Shift+R). -->
-<script src="js/supabase-client.js?v=2026-06-02-2"></script>
-<script src="js/db.js?v=2026-06-02-2"></script>
-<script src="js/repo.js?v=2026-06-02-2"></script>
-<script src="js/auth.js?v=2026-06-02-2"></script>
-<script src="js/permissoes.js?v=2026-06-02-2"></script>
+<script src="js/supabase-client.js?v=2026-06-02-3"></script>
+<script src="js/db.js?v=2026-06-02-3"></script>
+<script src="js/repo.js?v=2026-06-02-3"></script>
+<script src="js/auth.js?v=2026-06-02-3"></script>
+<script src="js/permissoes.js?v=2026-06-02-3"></script>
 <script>
 const ICONS = {
   home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2h-4v-7H9v7H5a2 2 0 01-2-2z"/></svg>',
@@ -39858,6 +39858,7 @@ const MENU_GRUPOS = [
   ]},
   // Grupo FINANCEIRO
   { tipo: 'grupo', id: 'g_financeiro', label: 'Financeiro', icon: 'dollar', filhos: [
+    { id: 'agenda-financeira', label: 'Agenda',        icon: 'calendar' },
     { id: 'centros-custo',  label: 'Centro de custo',  icon: 'database' },
     { id: 'contas-pagar',   label: 'Contas a pagar',   icon: 'dollar' },
     { id: 'contas-receber', label: 'Contas a receber', icon: 'dollar' },
@@ -46904,10 +46905,181 @@ function zerarCreditoFinanceiro(id) {
 }
 
 // =====================================================
+// AGENDA FINANCEIRA — calendário mensal de vencimentos (pagar + receber)
+// "Avisos" do que vence em cada dia: saídas a pagar (vermelho) e entradas a
+// receber (verde). Mostra só pendentes (não pagas/recebidas/canceladas).
+// Clica no dia → detalhe com atalhos pra baixar/receber/editar.
+// =====================================================
+let _agFinData = new Date();
+let _agFinDiaSel = null;
+
+function _agFinDoDia(iso) {
+  const pagar = (DB.contasPagar || []).filter(c => c.venc === iso && !['Paga','Cancelada'].includes(statusContaPagar(c)));
+  const receber = (DB.contasReceber || []).filter(c => c.venc === iso && !['Recebida','Cancelada'].includes(statusContaReceber(c)));
+  return { pagar, receber };
+}
+
+function renderAgendaFinanceira(parent) {
+  parent.innerHTML = '';
+  const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const ano = _agFinData.getFullYear();
+  const mes = _agFinData.getMonth();
+
+  const inicioMes = `${ano}-${String(mes+1).padStart(2,'0')}-01`;
+  const ultDia = new Date(ano, mes+1, 0).getDate();
+  const fimMes = `${ano}-${String(mes+1).padStart(2,'0')}-${String(ultDia).padStart(2,'0')}`;
+  const pagarMes = (DB.contasPagar||[]).filter(c => c.venc>=inicioMes && c.venc<=fimMes && !['Paga','Cancelada'].includes(statusContaPagar(c)));
+  const receberMes = (DB.contasReceber||[]).filter(c => c.venc>=inicioMes && c.venc<=fimMes && !['Recebida','Cancelada'].includes(statusContaReceber(c)));
+  const totPagar = pagarMes.reduce((s,c)=>s+saldoConta(c),0);
+  const totReceber = receberMes.reduce((s,c)=>s+saldoContaReceber(c),0);
+  const saldoPrev = totReceber - totPagar;
+
+  const wrap = el('<div class="orc-fullwidth fade-in"></div>');
+  wrap.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <h2 style="font-family:var(--serif);font-size:24px;margin:0;line-height:1">Agenda financeira · <em>${meses[mes]} ${ano}</em></h2>
+      <div style="display:flex;gap:4px">
+        <button class="btn btn-secondary btn-sm" id="agf-prev" title="Mês anterior">‹</button>
+        <button class="btn btn-secondary btn-sm" id="agf-hoje">Hoje</button>
+        <button class="btn btn-secondary btn-sm" id="agf-next" title="Próximo mês">›</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+      <div style="flex:1;min-width:190px;padding:12px 14px;border-radius:8px;background:#B0241F0d;border-left:3px solid #B0241F">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">↓ A pagar no mês</div>
+        <div style="font-size:20px;font-weight:600;color:#B0241F">${brl(totPagar)}</div>
+        <div style="font-size:11px;color:var(--muted)">${pagarMes.length} título(s)</div>
+      </div>
+      <div style="flex:1;min-width:190px;padding:12px 14px;border-radius:8px;background:#2E7D320d;border-left:3px solid #2E7D32">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">↑ A receber no mês</div>
+        <div style="font-size:20px;font-weight:600;color:#2E7D32">${brl(totReceber)}</div>
+        <div style="font-size:11px;color:var(--muted)">${receberMes.length} título(s)</div>
+      </div>
+      <div style="flex:1;min-width:190px;padding:12px 14px;border-radius:8px;background:var(--surface-2);border-left:3px solid var(--muted)">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Saldo previsto</div>
+        <div style="font-size:20px;font-weight:600;color:${saldoPrev>=0?'#2E7D32':'#B0241F'}">${brl(saldoPrev)}</div>
+        <div style="font-size:11px;color:var(--muted)">entradas − saídas</div>
+      </div>
+    </div>
+    <div id="agf-cal"></div>
+    <div id="agf-dia" style="margin-top:14px"></div>
+  `;
+  parent.appendChild(wrap);
+
+  wrap.querySelector('#agf-prev').onclick = () => { _agFinData = new Date(ano, mes-1, 1); _agFinDiaSel = null; renderPage(currentPage); };
+  wrap.querySelector('#agf-next').onclick = () => { _agFinData = new Date(ano, mes+1, 1); _agFinDiaSel = null; renderPage(currentPage); };
+  wrap.querySelector('#agf-hoje').onclick = () => { _agFinData = new Date(); _agFinDiaSel = isoToday(); renderPage(currentPage); };
+
+  _agFinRenderCal();
+  _agFinRenderDia();
+}
+
+function _agFinRenderCal() {
+  const host = document.getElementById('agf-cal');
+  if (!host) return;
+  const ano = _agFinData.getFullYear();
+  const mes = _agFinData.getMonth();
+  const primeiro = new Date(ano, mes, 1);
+  const ultDia = new Date(ano, mes+1, 0).getDate();
+  const dowInicio = primeiro.getDay();
+  const cells = [];
+  for (let i = 0; i < dowInicio; i++) cells.push({ empty: true });
+  for (let d = 1; d <= ultDia; d++) {
+    const iso = `${ano}-${String(mes+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    cells.push({ dia: d, iso, ...(_agFinDoDia(iso)) });
+  }
+  while (cells.length % 7 !== 0) cells.push({ empty: true });
+
+  host.innerHTML = `
+    <div class="card"><div class="card-body flush" style="padding:0">
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);border-bottom:1px solid var(--border)">
+        ${['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map(d => `<div style="padding:10px;text-align:center;font-size:11px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">${d}</div>`).join('')}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr)">
+        ${cells.map(cell => {
+          if (cell.empty) return '<div style="min-height:86px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--surface-2)"></div>';
+          const isHoje = cell.iso === isoToday();
+          const isSel = cell.iso === _agFinDiaSel;
+          const totP = cell.pagar.reduce((s,c)=>s+saldoConta(c),0);
+          const totR = cell.receber.reduce((s,c)=>s+saldoContaReceber(c),0);
+          const venc = cell.pagar.some(c=>cell.iso < isoToday()); // vencido (passado e ainda em aberto)
+          return `
+            <div class="ag-mes-cell" data-iso="${cell.iso}" style="cursor:pointer;${isHoje?'background:var(--info-bg);':''}${isSel?'box-shadow:inset 0 0 0 2px var(--ink);':''}" onclick="_agFinSelDia('${cell.iso}')">
+              <div class="ag-mes-num">${cell.dia}${venc?' <span title="Vencido em aberto" style="color:#B0241F">●</span>':''}</div>
+              ${cell.pagar.length ? `<div class="ag-mes-evento" style="background:#B0241F15;color:#B0241F">↓ ${brl(totP)}</div>` : ''}
+              ${cell.receber.length ? `<div class="ag-mes-evento" style="background:#2E7D3215;color:#2E7D32">↑ ${brl(totR)}</div>` : ''}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div></div>
+  `;
+}
+
+function _agFinSelDia(iso) {
+  _agFinDiaSel = iso;
+  _agFinRenderCal();
+  _agFinRenderDia();
+}
+
+function _agFinRenderDia() {
+  const host = document.getElementById('agf-dia');
+  if (!host) return;
+  if (!_agFinDiaSel) { host.innerHTML = ''; return; }
+  const { pagar, receber } = _agFinDoDia(_agFinDiaSel);
+
+  if (!pagar.length && !receber.length) {
+    host.innerHTML = `<div class="card fade-in"><div class="card-body" style="text-align:center;color:var(--muted);padding:18px">Nada vence em <strong>${isoToBR(_agFinDiaSel)}</strong>.</div></div>`;
+    return;
+  }
+
+  const linha = (c, tipo) => {
+    const isPagar = tipo === 'pagar';
+    const status = isPagar ? statusContaPagar(c) : statusContaReceber(c);
+    const cor = isPagar ? corStatusContaPagar(status) : corStatusContaReceber(status);
+    const saldo = isPagar ? saldoConta(c) : saldoContaReceber(c);
+    const quem = isPagar ? (c.fornecedor || c.desc || '—') : (c.cliente || c.desc || '—');
+    const acaoBaixa = isPagar
+      ? `<button class="row-action-btn" title="Baixar pagamento" onclick="abrirBaixaContaPagar('${c.id}')" style="color:#2E7D32">${ICONS.check}</button>`
+      : `<button class="row-action-btn" title="Registrar recebimento" onclick="abrirModalRecebimentoCR('${c.id}')" style="color:#2E7D32">${ICONS.dollar}</button>`;
+    return `
+      <div style="display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--border)">
+        <div style="font-family:var(--mono);font-size:11px;font-weight:600;min-width:64px">${c.id}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(quem)}</div>
+          ${c.desc && c.desc !== quem ? `<div style="font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(c.desc)}</div>` : ''}
+        </div>
+        <span style="font-size:10px;padding:2px 7px;background:${cor.fundo};color:${cor.texto};border-radius:3px;font-weight:500;white-space:nowrap">${status}</span>
+        <div style="font-size:13px;font-weight:600;min-width:90px;text-align:right;color:${isPagar?'#B0241F':'#2E7D32'}">${brl(saldo)}</div>
+        <div style="display:flex;gap:4px">
+          ${acaoBaixa}
+          <button class="row-action-btn" title="Abrir / editar" onclick="abrirCadastroPagina('${isPagar?'contas-pagar':'contas-receber'}','${c.id}')">${ICONS.edit}</button>
+        </div>
+      </div>
+    `;
+  };
+
+  host.innerHTML = `
+    <div class="card fade-in"><div class="card-body">
+      <h3 style="margin:0 0 6px;font-family:var(--serif);font-size:18px">${isoToBR(_agFinDiaSel)} · vencimentos</h3>
+      ${pagar.length ? `
+        <div style="font-size:12px;font-weight:600;color:#B0241F;margin:10px 0 2px">↓ A pagar (${pagar.length}) · ${brl(pagar.reduce((s,c)=>s+saldoConta(c),0))}</div>
+        ${pagar.map(c => linha(c,'pagar')).join('')}
+      ` : ''}
+      ${receber.length ? `
+        <div style="font-size:12px;font-weight:600;color:#2E7D32;margin:14px 0 2px">↑ A receber (${receber.length}) · ${brl(receber.reduce((s,c)=>s+saldoContaReceber(c),0))}</div>
+        ${receber.map(c => linha(c,'receber')).join('')}
+      ` : ''}
+    </div></div>
+  `;
+}
+
+// =====================================================
 // PATCH: Registrar todas as rotas do módulo financeiro no RENDERERS global
 // (PAGES não é uma global no sistema atual — o roteador real é RENDERERS)
 // =====================================================
 if (typeof RENDERERS !== 'undefined') {
+  RENDERERS['agenda-financeira'] = renderAgendaFinanceira;
   RENDERERS['centros-custo']  = renderCentrosCusto;
   RENDERERS['contas-pagar']   = renderContasPagar;
   RENDERERS['contas-receber'] = renderContasReceber;

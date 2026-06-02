@@ -71,6 +71,7 @@
     'sup-patrimonio':     'sup-patrimonio',
 
     // Financeiro
+    'agenda-financeira':  'financeiro',   // visão de vencimentos — herda acesso do Financeiro
     'centros-custo':      'centros-custo',
     'contas-pagar':       'contas-pagar',
     'contas-receber':     'contas-receber',
