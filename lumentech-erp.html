@@ -31094,13 +31094,29 @@ ${obs ? `
   w.document.close();
 }
 
-function emitirNotaFiscal(id, fabricado) {
+// Numeração à prova de colisão: pede o próximo número ao servidor (sequência
+// atômica). Se estiver offline/erro, cai no contador local pra não bloquear a
+// operação (mantendo o local como piso, via Math.max).
+async function _proximoNumeroSeguro(tipo, localKey) {
+  try {
+    if (window.repo && window.repo.proximoNumero) {
+      const n = await window.repo.proximoNumero(tipo);
+      if (n != null && !isNaN(n)) {
+        DB[localKey] = Math.max(DB[localKey] || 0, n);
+        return n;
+      }
+    }
+  } catch (e) { console.warn('Numeração server falhou, usando local:', e); }
+  return (DB[localKey] = (DB[localKey] || 1000) + 1);
+}
+
+async function emitirNotaFiscal(id, fabricado) {
   const p = DB.pedidos.find(x => x.id === id);
   if (!p) return;
   if (!p.financeiroAprovadoEm) { toast('Financeiro precisa ser aprovado antes de emitir NF', 'danger'); return; }
   if (!fabricado && !p.armazenadoEm) { toast('Pedido precisa estar armazenado antes da NF', 'danger'); return; }
-  // Mock de geração de NF
-  const nfNum = String((DB.nfSequencia = (DB.nfSequencia||1000) + 1)).padStart(6, '0');
+  // Mock de geração de NF (número vem da sequência atômica do servidor)
+  const nfNum = String(await _proximoNumeroSeguro('nf', 'nfSequencia')).padStart(6, '0');
   // Chave de acesso fake (44 dígitos típicos da NF-e)
   const chave = Array.from({length:44}, () => Math.floor(Math.random()*10)).join('');
   p.nfEmitidaEm = new Date().toISOString();
@@ -36684,12 +36700,11 @@ function abrirModalExpedicao(pedidoId) {
     `
   });
   m.root.querySelector('#exp-cancel').onclick = () => m.close();
-  m.root.querySelector('#exp-save').onclick = () => {
+  m.root.querySelector('#exp-save').onclick = async () => {
     const transp = m.root.querySelector('#exp-transp').value;
     if (!transp) { toast('Selecione a transportadora', 'danger'); return; }
-    // Gera Nº de romaneio sequencial
-    DB.romaneioSeq = (DB.romaneioSeq||1000) + 1;
-    const romaneio = 'ROM-' + String(DB.romaneioSeq).padStart(6,'0');
+    // Nº de romaneio sequencial (sequência atômica do servidor, à prova de colisão)
+    const romaneio = 'ROM-' + String(await _proximoNumeroSeguro('romaneio', 'romaneioSeq')).padStart(6,'0');
     p.expedidoEm = new Date().toISOString();
     p.expedicao = {
       transportadora: transp,

@@ -514,6 +514,16 @@ const repo = (() => {
     return data || [];
   }
 
+  // Numeração atômica server-side (NF, romaneio): devolve um número único via RPC
+  // (lock de linha no servidor). Retorna null se offline/erro — o chamador então
+  // cai no contador local como último recurso (ver _proximoNumeroSeguro no app).
+  async function proximoNumero(tipo) {
+    if (!sb()) return null;
+    const { data, error } = await sb().rpc('proximo_numero', { p_tipo: tipo });
+    if (error) { console.warn('proximo_numero falhou:', error); return null; }
+    return typeof data === 'number' ? data : Number(data);
+  }
+
   return {
     usuarios: { list: listUsuarios, create: createUsuario, update: updateUsuario, delete: deleteUsuario, setAtivo: setUsuarioAtivo, resetSenha: resetSenhaUsuario },
     perfis:   { list: listPerfis,   upsert: upsertPerfil, delete: deletePerfil },
@@ -521,6 +531,7 @@ const repo = (() => {
     audit:    { log: logAcao,       list: listAuditoria },
     bootstrap,
     sync: { all: syncAll, allDebounced: syncAllDebounced, entity: syncJsonbEntity },
+    proximoNumero,
     JSONB_ENTITIES,
   };
 })();
