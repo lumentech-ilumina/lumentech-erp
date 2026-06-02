@@ -224,6 +224,8 @@ const repo = (() => {
     { table: 'motivos_troca',         key: 'motivosTroca' },
     { table: 'motivos_devolucao',     key: 'motivosDevolucao' },
     { table: 'etapas_producao',       key: 'etapasProducao' },
+    { table: 'os_status',             key: 'osStatus' },
+    { table: 'separacao_etapas',      key: 'separacaoEtapas' },
     { table: 'pendencias_separacao',  key: 'pendenciasSeparacao' },
     { table: 'auditoria_exclusoes',   key: 'auditoriaExclusoes' },
     'motoristas',
@@ -393,11 +395,17 @@ const repo = (() => {
       })),
       loadSingletons().catch(err => { console.error('Falha ao carregar singletons:', err); return null; }),
     ]);
+    // Entidades de CONFIG que têm valores padrão embutidos: se o servidor vier
+    // vazio (tabela recém-criada ou ausente), NÃO esvazia — mantém os padrões
+    // locais (eles sobem no próximo saveDB). Evita quebrar kanbans.
+    const _backedByDefaults = new Set(['osStatus', 'separacaoEtapas']);
     JSONB_ENTITIES.forEach((entity, i) => {
       const tbl = _entityTable(entity);
       const key = _entityKey(entity);
       const { ok, items } = results[i];
-      if (window.DB) window.DB[key] = items;
+      const manterPadrao = items.length === 0 && _backedByDefaults.has(key)
+        && Array.isArray(window.DB?.[key]) && window.DB[key].length > 0;
+      if (window.DB && !manterPadrao) window.DB[key] = items;
       // Só registra estado de sync se carregou de verdade — assim a tabela ausente não vira
       // delete-missing no próximo sync (que apagaria dados locais por engano).
       if (ok) {

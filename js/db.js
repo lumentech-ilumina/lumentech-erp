@@ -51,7 +51,6 @@ function loadDB() {
     if (!Array.isArray(merged.motoristas)) merged.motoristas = [];
     if (!Array.isArray(merged.rotas)) merged.rotas = [];
     if (!Array.isArray(merged.auditoriaExclusoes)) merged.auditoriaExclusoes = [];
-    if (!Array.isArray(merged.linhasProducao)) merged.linhasProducao = [];
     // Vendas Externas (Field Sales CRM)
     if (!Array.isArray(merged.pontosComerciais)) merged.pontosComerciais = [];
     if (!Array.isArray(merged.visitasCampo)) merged.visitasCampo = [];
