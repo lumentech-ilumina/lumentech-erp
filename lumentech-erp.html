@@ -6672,10 +6672,321 @@ function renderStub(parent) {
   parent.appendChild(el('<div class="card"><div class="card-body"><p style="color:var(--muted)">Em construção.</p></div></div>'));
 }
 
+// =====================================================================
+// METAS COMERCIAIS — visão gerencial: realizado (Pedidos) vs metas + CRM
+// =====================================================================
+let _metasCharts = [];
+let _metasFiltro = null; // { mes:'YYYY-MM', vendedor:'' }
+
+function _metasDestroyCharts() { _metasCharts.forEach(c => { try { c.destroy(); } catch (e) {} }); _metasCharts = []; }
+function _metaMesAtualStr() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
+function _metaGet(mes) { return (DB.metasComerciais || []).find(m => m.mes === mes) || null; }
+function _pedData(p) { const s = p.data || p.criadoEm; if (!s) return null; const d = new Date(s); return isNaN(d) ? null : d; }
+function _pedValido(p) { return !p.canceladoEm && p.status !== 'Cancelado'; }
+function _diasUteis(ano, mes0, ateDia) {
+  let n = 0; const d = new Date(ano, mes0, 1);
+  while (d.getMonth() === mes0) {
+    const dow = d.getDay();
+    if (dow >= 1 && dow <= 5 && (!ateDia || d.getDate() <= ateDia)) n++;
+    d.setDate(d.getDate() + 1);
+  }
+  return n;
+}
+
+function renderMetas(parent) {
+  if (!Array.isArray(DB.metasComerciais)) DB.metasComerciais = [];
+  if (!_metasFiltro) _metasFiltro = { mes: _metaMesAtualStr(), vendedor: '' };
+  parent.innerHTML = '';
+
+  pageHead(parent, 'Metas <em>comerciais</em>', 'Desempenho da equipe em tempo real · realizado vs meta',
+    `<button class="btn btn-secondary btn-sm" onclick="_metasRenderConteudo()">${ICONS['rotate']||''} Atualizar</button>
+     <button class="btn btn-primary btn-sm" onclick="abrirCadastroMeta()">${ICONS.check} Definir metas do mês</button>`);
+
+  // Filtros
+  const vendedores = _metasVendedores();
+  parent.appendChild(el(`
+    <div class="filters" style="margin-bottom:14px">
+      <input type="month" class="filter-input" id="metas-mes" value="${escapeHtml(_metasFiltro.mes)}" style="max-width:180px">
+      <select class="filter-select" id="metas-vend">
+        <option value="">Todos os vendedores</option>
+        ${vendedores.map(v => `<option value="${escapeHtml(v)}" ${_metasFiltro.vendedor === v ? 'selected' : ''}>${escapeHtml(v)}</option>`).join('')}
+      </select>
+    </div>
+  `));
+  parent.querySelector('#metas-mes').onchange = (e) => { _metasFiltro.mes = e.target.value || _metaMesAtualStr(); _metasRenderConteudo(); };
+  parent.querySelector('#metas-vend').onchange = (e) => { _metasFiltro.vendedor = e.target.value; _metasRenderConteudo(); };
+
+  parent.appendChild(el('<div id="metas-conteudo"></div>'));
+  _metasRenderConteudo();
+}
+
+function _metasVendedores() {
+  const set = new Set();
+  (DB.vendedores || []).filter(v => v.ativo !== false).forEach(v => set.add(v.nome));
+  (DB.pedidos || []).forEach(p => { if (p.vendedor) set.add(p.vendedor); });
+  return [...set].filter(Boolean).sort();
+}
+
+function _metasRenderConteudo() {
+  _metasDestroyCharts();
+  const host = document.getElementById('metas-conteudo');
+  if (!host) return;
+  const fil = _metasFiltro;
+  const [anoS, mesS] = fil.mes.split('-');
+  const ano = +anoS, mes0 = (+mesS) - 1;
+  const hoje = new Date();
+  const ultimoDia = new Date(ano, mes0 + 1, 0).getDate();
+  const ehMesAtual = (ano === hoje.getFullYear() && mes0 === hoje.getMonth());
+  const ehFuturo = (ano > hoje.getFullYear()) || (ano === hoje.getFullYear() && mes0 > hoje.getMonth());
+  const diaCorte = ehMesAtual ? hoje.getDate() : (ehFuturo ? 0 : ultimoDia);
+
+  const meta = _metaGet(fil.mes);
+  const metaFat = Number(meta?.faturamento || 0);
+  const metaPed = Number(meta?.qtdPedidos || 0);
+  const metaNovos = Number(meta?.novosClientes || 0);
+
+  // ---- Realizado (Pedidos) ----
+  const noMes = (p) => { const d = _pedData(p); return d && d.getFullYear() === ano && d.getMonth() === mes0; };
+  const vendOk = (p) => !fil.vendedor || p.vendedor === fil.vendedor;
+  const pedidosMes = (DB.pedidos || []).filter(p => _pedValido(p) && noMes(p) && vendOk(p));
+  const realizado = pedidosMes.reduce((s, p) => s + Number(p.valor || 0), 0);
+  const qtdPedidos = pedidosMes.length;
+  const ticketMedio = qtdPedidos ? realizado / qtdPedidos : 0;
+  const restante = Math.max(0, metaFat - realizado);
+  const pctAtingido = metaFat > 0 ? (realizado / metaFat) * 100 : 0;
+
+  // Faturamento dia / semana
+  const mesmoDia = (d, ref) => d && d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth() && d.getDate() === ref.getDate();
+  const fatDia = (DB.pedidos || []).filter(p => _pedValido(p) && vendOk(p) && mesmoDia(_pedData(p), hoje)).reduce((s, p) => s + Number(p.valor || 0), 0);
+  const iniSemana = new Date(hoje); iniSemana.setDate(hoje.getDate() - ((hoje.getDay() + 6) % 7)); iniSemana.setHours(0, 0, 0, 0);
+  const fatSemana = (DB.pedidos || []).filter(p => { const d = _pedData(p); return _pedValido(p) && vendOk(p) && d && d >= iniSemana && d <= hoje; }).reduce((s, p) => s + Number(p.valor || 0), 0);
+
+  // ---- CRM (oportunidades) ----
+  const opps = (DB.oportunidades || []).filter(o => !fil.vendedor || (o.vendedor || '') === fil.vendedor);
+  const abertas = opps.filter(o => statusOportunidade(o) === 'oportunidade');
+  const ganhas = opps.filter(o => statusOportunidade(o) === 'ganho');
+  const perdidas = opps.filter(o => statusOportunidade(o) === 'perdido');
+  const taxaConv = (ganhas.length + perdidas.length) > 0 ? (ganhas.length / (ganhas.length + perdidas.length)) * 100 : 0;
+  const valorMedioProposta = opps.length ? opps.reduce((s, o) => s + Number(o.valor || 0), 0) / opps.length : 0;
+
+  // ---- Dias / meta diária / projeção ----
+  const diasUteisTotais = _diasUteis(ano, mes0);
+  const diasUteisDecorridos = _diasUteis(ano, mes0, diaCorte);
+  const diasUteisRestantes = Math.max(0, diasUteisTotais - diasUteisDecorridos);
+  const diasCorridos = diaCorte;
+  const diasRestantesCal = ultimoDia - diaCorte;
+  const metaDiaria = diasUteisRestantes > 0 ? restante / diasUteisRestantes : 0;
+  const pctMesDecorrido = (diaCorte / ultimoDia) * 100;
+  const projecao = diasUteisDecorridos > 0 ? (realizado / diasUteisDecorridos) * diasUteisTotais : realizado;
+  const vaiAtingir = metaFat > 0 && projecao >= metaFat;
+  const noRitmo = metaFat === 0 || (diasUteisTotais > 0 && realizado >= (metaFat / diasUteisTotais) * diasUteisDecorridos);
+
+  const cor = (pct) => pct >= 100 ? 'var(--success)' : pct >= 70 ? '#0369a1' : pct >= 40 ? 'var(--warning)' : 'var(--danger)';
+
+  const semMeta = metaFat === 0;
+  host.innerHTML = `
+    ${semMeta ? `<div class="card" style="margin-bottom:14px;border-left:3px solid var(--warning)"><div class="card-body" style="font-size:13px">Nenhuma meta definida para <strong>${escapeHtml(fil.mes)}</strong>. Clique em <strong>Definir metas do mês</strong> pra começar a acompanhar.</div></div>` : ''}
+
+    <!-- META MENSAL -->
+    <div class="kpi-grid" style="margin-bottom:14px">
+      <div class="kpi"><div class="kpi-lbl">Meta do mês</div><div class="kpi-val"><span class="currency">R$</span>${fmt(metaFat)}</div></div>
+      <div class="kpi"><div class="kpi-lbl">Realizado</div><div class="kpi-val" style="color:${cor(pctAtingido)}"><span class="currency">R$</span>${fmt(realizado)}</div><div class="kpi-sub">${pctAtingido.toFixed(1)}% da meta</div></div>
+      <div class="kpi"><div class="kpi-lbl">Falta vender</div><div class="kpi-val"><span class="currency">R$</span>${fmt(restante)}</div><div class="kpi-sub">${Math.max(0, 100 - pctAtingido).toFixed(1)}% restante</div></div>
+      <div class="kpi"><div class="kpi-lbl">Projeção do mês</div><div class="kpi-val" style="color:${vaiAtingir ? 'var(--success)' : 'var(--danger)'}"><span class="currency">R$</span>${fmt(projecao)}</div><div class="kpi-sub">${vaiAtingir ? '✓ deve bater a meta' : 'abaixo da meta'}</div></div>
+    </div>
+
+    <!-- BARRA DE PROGRESSO DA META -->
+    <div class="card" style="margin-bottom:14px"><div class="card-body">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px"><span style="color:var(--muted)">Progresso da meta</span><strong>${pctAtingido.toFixed(1)}%</strong></div>
+      <div style="height:14px;background:var(--surface-2);border-radius:7px;overflow:hidden"><div style="height:100%;width:${Math.min(100, pctAtingido)}%;background:${cor(pctAtingido)};border-radius:7px;transition:width .4s"></div></div>
+    </div></div>
+
+    <!-- META DIÁRIA + CONTADOR -->
+    <div class="kpi-grid" style="margin-bottom:14px">
+      <div class="kpi"><div class="kpi-lbl">Meta diária (ritmo)</div><div class="kpi-val"><span class="currency">R$</span>${fmt(metaDiaria)}</div><div class="kpi-sub">p/ ${diasUteisRestantes} dia(s) útil(eis) restante(s)</div></div>
+      <div class="kpi"><div class="kpi-lbl">Vendido hoje</div><div class="kpi-val"><span class="currency">R$</span>${fmt(fatDia)}</div><div class="kpi-sub" style="color:${fatDia >= metaDiaria && metaDiaria > 0 ? 'var(--success)' : 'var(--muted)'}">${metaDiaria > 0 ? (fatDia >= metaDiaria ? '✓ no ritmo' : 'abaixo do ritmo') : ''}</div></div>
+      <div class="kpi"><div class="kpi-lbl">Dias do mês</div><div class="kpi-val">${diasCorridos}<span style="font-size:18px;color:var(--muted)">/${ultimoDia}</span></div><div class="kpi-sub">${diasRestantesCal} dia(s) p/ fechar</div></div>
+      <div class="kpi"><div class="kpi-lbl">Mês decorrido</div><div class="kpi-val">${pctMesDecorrido.toFixed(0)}%</div><div style="height:6px;background:var(--surface-2);border-radius:3px;overflow:hidden;margin-top:6px"><div style="height:100%;width:${pctMesDecorrido}%;background:var(--ink)"></div></div></div>
+    </div>
+
+    <!-- ALERTA DE RITMO -->
+    ${!semMeta ? `<div class="card" style="margin-bottom:14px;border-left:3px solid ${noRitmo ? 'var(--success)' : 'var(--danger)'}"><div class="card-body" style="font-size:13px">
+      ${noRitmo
+        ? `<strong style="color:var(--success)">✓ No ritmo da meta.</strong> Mantendo esse passo, fecha em ${brl(projecao)}.`
+        : `<strong style="color:var(--danger)">⚠ Abaixo do ritmo.</strong> Precisa vender <strong>${brl(metaDiaria)}/dia útil</strong> nos ${diasUteisRestantes} dia(s) restantes pra bater a meta. Projeção atual: ${brl(projecao)}.`}
+    </div></div>` : ''}
+
+    <!-- INDICADORES COMERCIAIS -->
+    <div class="card" style="margin-bottom:14px"><div class="card-head"><h3>Indicadores comerciais</h3></div>
+      <div class="card-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px">
+        ${[
+          ['Faturamento do mês', brl(realizado)],
+          ['Faturamento da semana', brl(fatSemana)],
+          ['Faturamento do dia', brl(fatDia)],
+          ['Pedidos fechados', fmtInt(qtdPedidos) + (metaPed ? ` / ${fmtInt(metaPed)}` : '')],
+          ['Propostas em aberto', fmtInt(abertas.length)],
+          ['Propostas ganhas', fmtInt(ganhas.length)],
+          ['Propostas perdidas', fmtInt(perdidas.length)],
+          ['Taxa de conversão', taxaConv.toFixed(1) + '%'],
+          ['Ticket médio', brl(ticketMedio)],
+          ['Valor médio/proposta', brl(valorMedioProposta)],
+        ].map(([l, v]) => `<div style="padding:12px;border:1px solid var(--border);border-radius:8px"><div style="font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">${l}</div><div style="font-family:var(--serif);font-size:20px;color:var(--ink);margin-top:4px">${v}</div></div>`).join('')}
+      </div>
+    </div>
+
+    <!-- GRÁFICOS -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+      <div class="card"><div class="card-head"><h3>Evolução: meta vs realizado</h3></div><div class="card-body"><canvas id="metas-evol" height="220"></canvas></div></div>
+      <div class="card"><div class="card-head"><h3>Funil comercial</h3></div><div class="card-body"><canvas id="metas-funil" height="220"></canvas></div></div>
+    </div>
+    <div class="card" style="margin-bottom:14px"><div class="card-head"><h3>Performance do mês</h3></div><div class="card-body"><canvas id="metas-perf" height="120"></canvas></div></div>
+
+    <!-- RANKING -->
+    <div class="card"><div class="card-head"><h3>Ranking de vendedores</h3></div><div class="card-body flush" id="metas-ranking"></div></div>
+  `;
+
+  _metasRenderRanking(document.getElementById('metas-ranking'), pedidosMes, meta);
+  _metasRenderCharts({ ano, mes0, ultimoDia, diaCorte, metaFat, diasUteisTotais, pedidosMes, opps, projecao, realizado });
+}
+
+function _metasRenderRanking(host, pedidosMes, meta) {
+  if (!host) return;
+  const porV = {};
+  pedidosMes.forEach(p => {
+    const v = p.vendedor || '— sem vendedor —';
+    porV[v] = porV[v] || { valor: 0, qtd: 0 };
+    porV[v].valor += Number(p.valor || 0);
+    porV[v].qtd += 1;
+  });
+  const metaVend = {};
+  (meta?.metasVendedor || []).forEach(mv => { metaVend[mv.vendedor] = Number(mv.valor || 0); });
+  const linhas = Object.entries(porV).map(([v, d]) => ({
+    vendedor: v, valor: d.valor, qtd: d.qtd, ticket: d.qtd ? d.valor / d.qtd : 0,
+    metaV: metaVend[v] || 0, pct: metaVend[v] > 0 ? (d.valor / metaVend[v]) * 100 : null,
+  })).sort((a, b) => b.valor - a.valor);
+
+  if (linhas.length === 0) { host.innerHTML = '<div style="padding:18px;color:var(--muted);font-size:12.5px">Sem pedidos no período.</div>'; return; }
+  host.innerHTML = `
+    <div class="table-wrap"><table class="tbl">
+      <thead><tr><th style="width:40px">#</th><th>Vendedor</th><th class="num">Vendido</th><th class="num">Pedidos</th><th class="num">Ticket médio</th><th class="num">% da meta</th></tr></thead>
+      <tbody>${linhas.map((l, i) => `
+        <tr>
+          <td class="num num-strong">${i + 1}</td>
+          <td><strong>${escapeHtml(l.vendedor)}</strong></td>
+          <td class="num num-strong">${brl(l.valor)}</td>
+          <td class="num">${fmtInt(l.qtd)}</td>
+          <td class="num">${brl(l.ticket)}</td>
+          <td class="num" style="font-weight:500;color:${l.pct === null ? 'var(--muted-2)' : l.pct >= 100 ? 'var(--success)' : l.pct >= 60 ? 'var(--warning)' : 'var(--danger)'}">${l.pct === null ? '—' : l.pct.toFixed(0) + '%'}</td>
+        </tr>`).join('')}</tbody>
+    </table></div>`;
+}
+
+function _metasRenderCharts(d) {
+  // Evolução acumulada (meta linear vs realizado)
+  const ctxE = document.getElementById('metas-evol');
+  if (ctxE && typeof Chart !== 'undefined') {
+    const labels = [], metaAcum = [], realAcum = [];
+    const metaDiaUtil = d.diasUteisTotais > 0 ? d.metaFat / d.diasUteisTotais : 0;
+    let accReal = 0, accMetaUteis = 0;
+    for (let dia = 1; dia <= d.ultimoDia; dia++) {
+      labels.push(String(dia));
+      const dataDia = new Date(d.ano, d.mes0, dia);
+      const dow = dataDia.getDay();
+      if (dow >= 1 && dow <= 5) accMetaUteis += metaDiaUtil;
+      metaAcum.push(d.metaFat ? Math.round(accMetaUteis) : null);
+      // realizado acumulado só até o dia de corte
+      if (dia <= d.diaCorte) {
+        accReal += d.pedidosMes.filter(p => { const pd = _pedData(p); return pd && pd.getDate() === dia; }).reduce((s, p) => s + Number(p.valor || 0), 0);
+        realAcum.push(Math.round(accReal));
+      } else realAcum.push(null);
+    }
+    _metasCharts.push(new Chart(ctxE, {
+      type: 'line',
+      data: { labels, datasets: [
+        { label: 'Meta acumulada', data: metaAcum, borderColor: '#94a3b8', borderDash: [5, 5], pointRadius: 0, tension: .1 },
+        { label: 'Realizado', data: realAcum, borderColor: '#0369a1', backgroundColor: 'rgba(3,105,161,.08)', fill: true, pointRadius: 0, tension: .25 },
+      ] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { boxWidth: 12, font: { size: 11 } } } }, scales: { y: { ticks: { callback: v => 'R$ ' + (v / 1000).toFixed(0) + 'k' } } } },
+    }));
+  }
+  // Funil (por etapa do funil de vendas)
+  const ctxF = document.getElementById('metas-funil');
+  if (ctxF && typeof Chart !== 'undefined') {
+    const funil = (DB.funis || [])[0];
+    const etapas = funil?.etapas || [];
+    const labels = etapas.map(e => e.nome);
+    const vals = etapas.map(e => d.opps.filter(o => o.funilId === funil.id && o.etapaId === e.id).length);
+    _metasCharts.push(new Chart(ctxF, {
+      type: 'bar',
+      data: { labels, datasets: [{ label: 'Propostas', data: vals, backgroundColor: etapas.map(e => e.ganha ? '#2E7D32' : e.perdida ? '#B0241F' : '#1A1A1A') }] },
+      options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } },
+    }));
+  }
+  // Performance: meta vs realizado vs projeção
+  const ctxP = document.getElementById('metas-perf');
+  if (ctxP && typeof Chart !== 'undefined') {
+    _metasCharts.push(new Chart(ctxP, {
+      type: 'bar',
+      data: { labels: ['Meta', 'Realizado', 'Projeção'], datasets: [{ data: [d.metaFat, d.realizado, d.projecao], backgroundColor: ['#94a3b8', '#0369a1', d.projecao >= d.metaFat ? '#2E7D32' : '#d97706'] }] },
+      options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => brl(c.raw) } } }, scales: { x: { ticks: { callback: v => 'R$ ' + (v / 1000).toFixed(0) + 'k' } } } },
+    }));
+  }
+}
+
+function abrirCadastroMeta() {
+  if (typeof exigeAcesso === 'function' && !exigeAcesso('crm', 'editar')) return;
+  const mes = _metasFiltro?.mes || _metaMesAtualStr();
+  const existente = _metaGet(mes);
+  const vendedores = _metasVendedores();
+  const mv = {}; (existente?.metasVendedor || []).forEach(x => { mv[x.vendedor] = x.valor; });
+  const m = openModal({
+    title: `Metas de ${mes}`,
+    size: 'lg',
+    body: `
+      <div class="field-row">
+        <div class="field"><label>Meta de faturamento (R$) *</label><input type="number" step="0.01" min="0" id="meta-fat" value="${existente?.faturamento || ''}" placeholder="0,00"></div>
+        <div class="field"><label>Meta de pedidos</label><input type="number" step="1" min="0" id="meta-ped" value="${existente?.qtdPedidos || ''}" placeholder="0"></div>
+        <div class="field"><label>Meta de novos clientes</label><input type="number" step="1" min="0" id="meta-novos" value="${existente?.novosClientes || ''}" placeholder="0"></div>
+      </div>
+      <h4 style="font-size:12px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:16px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border)">Meta por vendedor (R$)</h4>
+      <div style="max-height:280px;overflow:auto">
+        ${vendedores.length ? vendedores.map(v => `
+          <div class="field-row" style="margin-bottom:8px;align-items:center">
+            <div style="flex:1;font-size:12.5px">${escapeHtml(v)}</div>
+            <input type="number" step="0.01" min="0" class="meta-vend" data-vend="${escapeHtml(v)}" value="${mv[v] || ''}" placeholder="0,00" style="width:160px;padding:7px 9px;border:1px solid var(--border);border-radius:6px;text-align:right">
+          </div>`).join('') : '<div style="color:var(--muted);font-size:12.5px">Nenhum vendedor cadastrado ainda.</div>'}
+      </div>
+    `,
+    footer: `<button class="btn btn-secondary" id="mt-cancel">Cancelar</button><button class="btn btn-primary" id="mt-save">${ICONS.check} Salvar metas</button>`
+  });
+  m.root.querySelector('#mt-cancel').onclick = () => m.close();
+  m.root.querySelector('#mt-save').onclick = () => {
+    const metasVendedor = Array.from(m.root.querySelectorAll('.meta-vend'))
+      .map(i => ({ vendedor: i.dataset.vend, valor: Number(i.value || 0) }))
+      .filter(x => x.valor > 0);
+    const rec = {
+      id: existente?.id || ('meta_' + Date.now()),
+      mes,
+      faturamento: Number(m.root.querySelector('#meta-fat').value || 0),
+      qtdPedidos: Number(m.root.querySelector('#meta-ped').value || 0),
+      novosClientes: Number(m.root.querySelector('#meta-novos').value || 0),
+      metasVendedor,
+      atualizadoEm: new Date().toISOString(),
+    };
+    DB.metasComerciais = (DB.metasComerciais || []).filter(x => x.mes !== mes);
+    DB.metasComerciais.push(rec);
+    saveDB();
+    toast('Metas salvas');
+    m.close();
+    _metasRenderConteudo();
+  };
+}
+
 const RENDERERS = {
   inicio: (...a) => renderInicio(...a),
   dashboard: renderDashboard,
   crm: renderCRM,
+  metas: renderMetas,
   clientes: renderClientesModule,
   parceiros: renderParceiros,
   vendedores: renderVendedores,
@@ -23378,6 +23689,7 @@ const MODULOS_SISTEMA = [
   { id:'relatorios',       label:'Relatórios',          icon:'chart',       grupo:'Geral',       parent:'relatorios' },
 
   { id:'crm',              label:'CRM',                 icon:'crm',         grupo:'Vendas',      parent:'crm' },
+  { id:'metas',            label:'Metas Comerciais',    icon:'trophy',      grupo:'Vendas',      parent:'crm' },
   { id:'orcamentos',       label:'Orçamentos',          icon:'file-text',   grupo:'Vendas',      parent:'orcamentos' },
   { id:'pedidos',          label:'Pedidos',             icon:'shopping-bag',grupo:'Vendas',      parent:'pedidos' },
   { id:'trocas',           label:'Trocas',              icon:'rotate',      grupo:'Vendas',      parent:'pedidos' },
@@ -39385,6 +39697,7 @@ const MENU_GRUPOS = [
   // Grupo VENDAS
   { tipo: 'grupo', id: 'g_vendas', label: 'Vendas', icon: 'shopping-bag', filhos: [
     { id: 'crm',           label: 'CRM',                      icon: 'crm' },
+    { id: 'metas',         label: 'Metas Comerciais',         icon: 'trophy' },
     { id: 'orcamentos',    label: 'Orçamentos',               icon: 'file-text' },
     { id: 'pedidos',       label: 'Pedidos',                  icon: 'shopping-bag' },
     { id: 'trocas',        label: 'Trocas',                   icon: 'rotate' },

@@ -28,6 +28,7 @@
 
     // Vendas
     crm:                  'crm',
+    metas:                'metas',
     orcamentos:           'orcamentos',
     pedidos:              'pedidos',
     trocas:               'trocas',
@@ -87,6 +88,7 @@
   // Herança "filho → pai": perfis criados antes do destrinchamento só têm a chave
   // agrupada (ex: 'cadastros'). Os filhos herdam dela até o admin reconfigurar.
   const PERM_PARENT = {
+    metas: 'crm',
     trocas: 'pedidos', devolucoes: 'pedidos', creditos: 'pedidos',
     transportadoras: 'cadastros', motoristas: 'cadastros', veiculos: 'cadastros',
     vendedores: 'cadastros', ambientes: 'cadastros', marcas: 'cadastros',
