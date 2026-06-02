@@ -6677,6 +6677,31 @@ function renderStub(parent) {
 // =====================================================================
 let _metasCharts = [];
 let _metasFiltro = null; // { mes:'YYYY-MM', vendedor:'' }
+let _metasTV = false;
+let _metasTVTimer = null;
+
+// Modo TV: tela cheia, sidebar/topbar ocultos, números grandes (reusa o CSS dash-tv-mode)
+// + auto-atualização a cada 60s. ESC sai.
+function metasToggleTV() {
+  _metasTV = !_metasTV;
+  document.body.classList.toggle('dash-tv-mode', _metasTV);
+  if (_metasTV) {
+    try { document.documentElement.requestFullscreen?.(); } catch (e) {}
+    toast('Modo TV ativo · ESC para sair');
+    if (_metasTVTimer) clearInterval(_metasTVTimer);
+    _metasTVTimer = setInterval(() => { if (currentPage === 'metas' && document.getElementById('metas-conteudo')) _metasRenderConteudo(); }, 60000);
+  } else {
+    try { document.exitFullscreen?.(); } catch (e) {}
+    if (_metasTVTimer) { clearInterval(_metasTVTimer); _metasTVTimer = null; }
+  }
+  if (currentPage === 'metas' && typeof renderPage === 'function') renderPage('metas');
+}
+if (!window._metasTVEscHooked) {
+  window._metasTVEscHooked = true;
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && _metasTV) metasToggleTV(); });
+  // Se sair da tela cheia por outro meio, desliga o modo TV
+  document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && _metasTV) metasToggleTV(); });
+}
 
 function _metasDestroyCharts() { _metasCharts.forEach(c => { try { c.destroy(); } catch (e) {} }); _metasCharts = []; }
 function _metaMesAtualStr() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
@@ -6699,7 +6724,8 @@ function renderMetas(parent) {
   parent.innerHTML = '';
 
   pageHead(parent, 'Metas <em>comerciais</em>', 'Desempenho da equipe em tempo real · realizado vs meta',
-    `<button class="btn btn-secondary btn-sm" onclick="_metasRenderConteudo()">${ICONS['rotate']||''} Atualizar</button>
+    `<button class="btn btn-secondary btn-sm" onclick="metasToggleTV()" title="Tela cheia para TV (ESC sai)">${ICONS['tv']||ICONS.chart||''} ${_metasTV ? 'Sair TV' : 'Modo TV'}</button>
+     <button class="btn btn-secondary btn-sm" onclick="_metasRenderConteudo()">${ICONS['rotate']||''} Atualizar</button>
      <button class="btn btn-secondary btn-sm" onclick="abrirPlanejarAno()">${ICONS.chart||''} Planejar ano</button>
      <button class="btn btn-primary btn-sm" onclick="abrirCadastroMeta()">${ICONS.check} Metas do mês</button>`);
 
