@@ -43562,8 +43562,13 @@ function renderCRSubpage() {
   const wrap = el('<div class="fade-in"></div>');
   c.appendChild(wrap);
 
+  // App bar SEMPRE no topo — navegação entre as visões
+  wrap.appendChild(_crAppBarElement());
+
+  const corpo = el('<div></div>');
+  wrap.appendChild(corpo);
   if (_crSubpage === 'dashboard') {
-    renderCRDashboard(wrap);
+    renderCRDashboard(corpo);
   } else {
     const filtros = {
       todas:    () => true,
@@ -43572,14 +43577,8 @@ function renderCRSubpage() {
       parciais: (c) => statusContaReceber(c) === 'Parcial',
       recebidas:(c) => statusContaReceber(c) === 'Recebida',
     };
-    renderCRListagem(wrap, filtros[_crSubpage] || filtros.todas);
+    renderCRListagem(corpo, filtros[_crSubpage] || filtros.todas);
   }
-
-  // App bar entra logo APÓS o título da página
-  const head = wrap.querySelector('.page-head');
-  const tabs = _crAppBarElement();
-  if (head && head.parentNode) head.parentNode.insertBefore(tabs, head.nextSibling);
-  else wrap.insertBefore(tabs, wrap.firstChild);
 }
 
 function renderCRDashboard(parent) {
