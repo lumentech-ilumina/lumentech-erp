@@ -155,11 +155,11 @@
 
 <!-- ?v=... = cache-busting. Bump a versão (data-seq) a cada mudança de JS pra
      a equipe receber o novo código no F5 normal (sem precisar de Ctrl+Shift+R). -->
-<script src="js/supabase-client.js?v=2026-06-02-1"></script>
-<script src="js/db.js?v=2026-06-02-1"></script>
-<script src="js/repo.js?v=2026-06-02-1"></script>
-<script src="js/auth.js?v=2026-06-02-1"></script>
-<script src="js/permissoes.js?v=2026-06-02-1"></script>
+<script src="js/supabase-client.js?v=2026-06-02-2"></script>
+<script src="js/db.js?v=2026-06-02-2"></script>
+<script src="js/repo.js?v=2026-06-02-2"></script>
+<script src="js/auth.js?v=2026-06-02-2"></script>
+<script src="js/permissoes.js?v=2026-06-02-2"></script>
 <script>
 const ICONS = {
   home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2h-4v-7H9v7H5a2 2 0 01-2-2z"/></svg>',
@@ -42481,6 +42481,9 @@ let _cpFiltros = {
   valorMin: '',
   valorMax: '',
 };
+function _resetCpFiltros() {
+  _cpFiltros = { busca: '', fornecedor: '', centroCusto: '', dataIni: '', dataFim: '', valorMin: '', valorMax: '' };
+}
 
 function renderContasPagar(parent) {
   parent.innerHTML = '';
@@ -42512,7 +42515,7 @@ function _cpAppBarElement() {
     </div>
   `);
   bar.querySelectorAll('.orc-status-tab').forEach(btn => {
-    btn.onclick = () => { _cpSubpage = btn.dataset.tab; renderCPSubpage(); };
+    btn.onclick = () => { _cpSubpage = btn.dataset.tab; _resetCpFiltros(); renderCPSubpage(); };
   });
   return bar;
 }
@@ -42550,7 +42553,7 @@ function renderCPSubmenu() {
         ${counts[s.id] > 0 ? `<span class="submenu-count">${counts[s.id]}</span>` : ''}
       </div>
     `);
-    item.onclick = () => { _cpSubpage = s.id; renderCPSubmenu(); renderCPSubpage(); };
+    item.onclick = () => { _cpSubpage = s.id; _resetCpFiltros(); renderCPSubmenu(); renderCPSubpage(); };
     menu.appendChild(item);
   });
 }
@@ -43581,9 +43584,15 @@ function _crAppBarElement() {
     </div>
   `);
   bar.querySelectorAll('.orc-status-tab').forEach(btn => {
-    btn.onclick = () => { _crSubpage = btn.dataset.tab; renderCRSubpage(); };
+    // Trocar de aba limpa os filtros: cada aba abre com a lista cheia. O filtro
+    // serve só pra refinar dentro da aba, não pra "fazer a lista aparecer".
+    btn.onclick = () => { _crSubpage = btn.dataset.tab; _resetCrFiltros(); renderCRSubpage(); };
   });
   return bar;
+}
+
+function _resetCrFiltros() {
+  _crFiltros = { busca: '', cliente: '', centroCusto: '', dataIni: '', dataFim: '', valorMin: '', valorMax: '' };
 }
 
 const CR_SUBMENU = [
@@ -43619,7 +43628,7 @@ function renderCRSubmenu() {
         ${counts[s.id] > 0 ? `<span class="submenu-count">${counts[s.id]}</span>` : ''}
       </div>
     `);
-    item.onclick = () => { _crSubpage = s.id; renderCRSubmenu(); renderCRSubpage(); };
+    item.onclick = () => { _crSubpage = s.id; _resetCrFiltros(); renderCRSubmenu(); renderCRSubpage(); };
     menu.appendChild(item);
   });
 }
