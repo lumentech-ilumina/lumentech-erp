@@ -46545,12 +46545,18 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     }
     if (loader) loader.remove();
 
-    // Atualização em segundo plano — NÃO bloqueia e NÃO re-renderiza a página.
-    // O DB é atualizado em memória silenciosamente; os dados novos aparecem na
-    // próxima navegação/interação. Assim garantimos UMA ÚNICA renderização: sem
-    // delay (nada de serializar o DB) e sem o 2º "pisca". Só re-renderiza se o
-    // PERFIL do usuário mudou (afeta menu/permissões) — caso raro.
+    // Atualização em segundo plano: traz os dados frescos do servidor (mudanças
+    // de outros usuários). Re-renderiza SÓ se algo mudou — comparação por
+    // ASSINATURA BARATA (tamanho das listas + contadores), sem serializar o DB
+    // inteiro (evita delay) e sem "piscar" quando nada mudou.
+    const _sigDB = () => {
+      const d = window.DB || {}; let s = '';
+      for (const k in d) { if (Array.isArray(d[k])) s += k + d[k].length + '|'; }
+      try { s += 'c' + JSON.stringify(d.counters || {}); } catch (_) {}
+      return s;
+    };
     const _perfilAntes = window.CURRENT_USER?.perfilId;
+    const _sigAntes = _sigDB();
     repo.bootstrap().then(() => {
       // Se o usuário saiu (logout) durante o bootstrap, não ressuscita o CURRENT_USER
       if (!window.CURRENT_USER) return;
@@ -46558,9 +46564,14 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
       if (u) window.CURRENT_USER = { id:u.id, nome:u.nome, email:u.email, admin:u.admin, perfilId:u.perfilId };
       if (typeof window.atualizarUserChip === 'function') window.atualizarUserChip();
       if (typeof recalcularEstoqueReservado === 'function') recalcularEstoqueReservado();
-      if (window.CURRENT_USER?.perfilId !== _perfilAntes) {
-        // Perfil mudou no servidor → reaplica o gate de permissão (pode redirecionar)
-        navigate(currentPage);
+      const perfilMudou = window.CURRENT_USER?.perfilId !== _perfilAntes;
+      const dadosMudaram = _sigDB() !== _sigAntes;
+      if (perfilMudou) {
+        navigate(currentPage); // reaplica o gate de permissão
+      } else if (dadosMudaram) {
+        // Mudou algo no servidor (ex: outro usuário cadastrou) → mostra na tela
+        window.renderNav();
+        if (typeof renderPage === 'function') renderPage(currentPage);
       }
     }).catch(err => console.warn('Atualização em segundo plano falhou:', err));
     return;
