@@ -43133,11 +43133,12 @@ function deleteContaPagarProtegido(id) {
   confirmAction({
     title: 'Excluir conta a pagar?',
     message: `${escapeHtml(c.id)} · ${escapeHtml(c.desc || '')}<br>${temPag ? '<br><strong style="color: var(--danger)">⚠ Esta conta tem '+c.pagamentos.length+' pagamento(s) registrado(s). Excluir vai apagar o histórico.</strong>' : ''}`,
-    onConfirm: () => {
+    onConfirm: async () => {
       DB.contasPagar = DB.contasPagar.filter(x => x.id !== id);
       saveDB();
+      try { if (window.repo?.sync?.all) await window.repo.sync.all(); } catch (e) { console.warn('Falha ao sincronizar exclusão:', e); }
       toast('Conta excluída', 'danger');
-      renderCPSubmenu();
+      // Re-renderiza SÓ a lista da aba atual (fica na mesma página, item some)
       renderCPSubpage();
     }
   });
@@ -43979,7 +43980,8 @@ function excluirContaReceber(id) {
       // recarregar antes do sync subir, o servidor mantém a conta e ela "volta".
       try { if (window.repo?.sync?.all) await window.repo.sync.all(); } catch (e) { console.warn('Falha ao sincronizar exclusão:', e); }
       toast(`Conta ${id} excluída`, 'success');
-      renderPage(currentPage);
+      // Re-renderiza SÓ a lista da aba atual (fica na mesma página, item some)
+      if (typeof renderCRSubpage === 'function') renderCRSubpage(); else renderPage(currentPage);
     }
   });
 }
