@@ -228,6 +228,7 @@ const repo = (() => {
     { table: 'auditoria_exclusoes',   key: 'auditoriaExclusoes' },
     'motoristas',
     'rotas',
+    'transportadoras',
     // Fase 12 — Vendas Externas (Field Sales CRM)
     { table: 'pontos_comerciais',  key: 'pontosComerciais' },
     { table: 'visitas_campo',      key: 'visitasCampo' },
