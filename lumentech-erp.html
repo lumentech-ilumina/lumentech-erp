@@ -47326,6 +47326,7 @@ function zerarCreditoFinanceiro(id) {
 // =====================================================
 let _agFinData = new Date();
 let _agFinDiaSel = null;
+let _agFinView = 'mes';   // 'dia' | 'semana' | 'mes'
 
 function _agFinDoDia(iso) {
   const pagar = (DB.contasPagar || []).filter(c => c.venc === iso && !['Paga','Cancelada'].includes(statusContaPagar(c)));
@@ -47333,41 +47334,86 @@ function _agFinDoDia(iso) {
   return { pagar, receber };
 }
 
+// ISO local (sem deslocar fuso) de uma Date
+function _agFinIso(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+// Período visível conforme a visão (dia / semana / mês): início, fim e rótulo.
+function _agFinPeriodo() {
+  const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const d = _agFinData;
+  if (_agFinView === 'dia') {
+    const iso = _agFinIso(d);
+    const dow = ['domingo','segunda-feira','terça-feira','quarta-feira','quinta-feira','sexta-feira','sábado'][d.getDay()];
+    return { ini: iso, fim: iso, label: isoToBR(iso), sub: dow };
+  }
+  if (_agFinView === 'semana') {
+    const ini = new Date(d); ini.setDate(d.getDate() - d.getDay());          // domingo da semana
+    const fim = new Date(ini); fim.setDate(ini.getDate() + 6);               // sábado
+    return { ini: _agFinIso(ini), fim: _agFinIso(fim), label: `${isoToBR(_agFinIso(ini))} – ${isoToBR(_agFinIso(fim))}`, sub: 'Semana' };
+  }
+  const ano = d.getFullYear(), mes = d.getMonth(), ult = new Date(ano, mes+1, 0).getDate();
+  return {
+    ini: `${ano}-${String(mes+1).padStart(2,'0')}-01`,
+    fim: `${ano}-${String(mes+1).padStart(2,'0')}-${String(ult).padStart(2,'0')}`,
+    label: `${meses[mes]} ${ano}`, sub: 'Mês',
+  };
+}
+// Navega pra frente/trás na unidade da visão (1 dia / 1 semana / 1 mês)
+function _agFinNav(dir) {
+  const d = new Date(_agFinData);
+  if (_agFinView === 'dia') d.setDate(d.getDate() + dir);
+  else if (_agFinView === 'semana') d.setDate(d.getDate() + 7 * dir);
+  else d.setMonth(d.getMonth() + dir, 1);
+  _agFinData = d; _agFinDiaSel = null; renderPage(currentPage);
+}
+function _agFinSetView(v) {
+  if (_agFinView === v) return;
+  _agFinView = v; _agFinDiaSel = null; renderPage(currentPage);
+}
+// Pula pra uma data específica (input de data). No mês, abre direto o dia escolhido.
+function _agFinIrData(val) {
+  if (!val) return;
+  _agFinData = new Date(val + 'T12:00:00');   // meio-dia evita virar o dia por fuso
+  _agFinDiaSel = val;
+  if (_agFinView === 'mes') _agFinView = 'dia';
+  renderPage(currentPage);
+}
+
 function renderAgendaFinanceira(parent) {
   parent.innerHTML = '';
-  const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-  const ano = _agFinData.getFullYear();
-  const mes = _agFinData.getMonth();
-
-  const inicioMes = `${ano}-${String(mes+1).padStart(2,'0')}-01`;
-  const ultDia = new Date(ano, mes+1, 0).getDate();
-  const fimMes = `${ano}-${String(mes+1).padStart(2,'0')}-${String(ultDia).padStart(2,'0')}`;
-  const pagarMes = (DB.contasPagar||[]).filter(c => c.venc>=inicioMes && c.venc<=fimMes && !['Paga','Cancelada'].includes(statusContaPagar(c)));
-  const receberMes = (DB.contasReceber||[]).filter(c => c.venc>=inicioMes && c.venc<=fimMes && !['Recebida','Cancelada'].includes(statusContaReceber(c)));
-  const totPagar = pagarMes.reduce((s,c)=>s+saldoConta(c),0);
-  const totReceber = receberMes.reduce((s,c)=>s+saldoContaReceber(c),0);
+  const per = _agFinPeriodo();
+  const pagarP = (DB.contasPagar||[]).filter(c => c.venc>=per.ini && c.venc<=per.fim && !['Paga','Cancelada'].includes(statusContaPagar(c)));
+  const receberP = (DB.contasReceber||[]).filter(c => c.venc>=per.ini && c.venc<=per.fim && !['Recebida','Cancelada'].includes(statusContaReceber(c)));
+  const totPagar = pagarP.reduce((s,c)=>s+saldoConta(c),0);
+  const totReceber = receberP.reduce((s,c)=>s+saldoContaReceber(c),0);
   const saldoPrev = totReceber - totPagar;
+  const btnView = (v,txt) => `<button class="btn btn-sm ${_agFinView===v?'btn-primary':'btn-secondary'}" onclick="_agFinSetView('${v}')">${txt}</button>`;
 
   const wrap = el('<div class="orc-fullwidth fade-in"></div>');
   wrap.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
-      <h2 style="font-family:var(--serif);font-size:24px;margin:0;line-height:1">Agenda financeira · <em>${meses[mes]} ${ano}</em></h2>
-      <div style="display:flex;gap:4px">
-        <button class="btn btn-secondary btn-sm" id="agf-prev" title="Mês anterior">‹</button>
-        <button class="btn btn-secondary btn-sm" id="agf-hoje">Hoje</button>
-        <button class="btn btn-secondary btn-sm" id="agf-next" title="Próximo mês">›</button>
+      <h2 style="font-family:var(--serif);font-size:24px;margin:0;line-height:1">Agenda financeira · <em>${per.label}</em></h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <div style="display:flex;gap:4px">${btnView('dia','Dia')}${btnView('semana','Semana')}${btnView('mes','Mês')}</div>
+        <input type="date" id="agf-data" value="${_agFinIso(_agFinData)}" title="Ir pra uma data" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font:inherit;font-size:12.5px">
+        <div style="display:flex;gap:4px">
+          <button class="btn btn-secondary btn-sm" id="agf-prev" title="Anterior">‹</button>
+          <button class="btn btn-secondary btn-sm" id="agf-hoje">Hoje</button>
+          <button class="btn btn-secondary btn-sm" id="agf-next" title="Próximo">›</button>
+        </div>
       </div>
     </div>
     <div style="display:flex;gap:12px;margin-bottom:14px;flex-wrap:wrap">
       <div style="flex:1;min-width:190px;padding:12px 14px;border-radius:8px;background:#B0241F0d;border-left:3px solid #B0241F">
-        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">↓ A pagar no mês</div>
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">↓ A pagar no período</div>
         <div style="font-size:20px;font-weight:600;color:#B0241F">${brl(totPagar)}</div>
-        <div style="font-size:11px;color:var(--muted)">${pagarMes.length} título(s)</div>
+        <div style="font-size:11px;color:var(--muted)">${pagarP.length} título(s)</div>
       </div>
       <div style="flex:1;min-width:190px;padding:12px 14px;border-radius:8px;background:#2E7D320d;border-left:3px solid #2E7D32">
-        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">↑ A receber no mês</div>
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">↑ A receber no período</div>
         <div style="font-size:20px;font-weight:600;color:#2E7D32">${brl(totReceber)}</div>
-        <div style="font-size:11px;color:var(--muted)">${receberMes.length} título(s)</div>
+        <div style="font-size:11px;color:var(--muted)">${receberP.length} título(s)</div>
       </div>
       <div style="flex:1;min-width:190px;padding:12px 14px;border-radius:8px;background:var(--surface-2);border-left:3px solid var(--muted)">
         <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Saldo previsto</div>
@@ -47375,17 +47421,74 @@ function renderAgendaFinanceira(parent) {
         <div style="font-size:11px;color:var(--muted)">entradas − saídas</div>
       </div>
     </div>
-    <div id="agf-cal"></div>
-    <div id="agf-dia" style="margin-top:14px"></div>
+    <div id="agf-body"></div>
   `;
   parent.appendChild(wrap);
 
-  wrap.querySelector('#agf-prev').onclick = () => { _agFinData = new Date(ano, mes-1, 1); _agFinDiaSel = null; renderPage(currentPage); };
-  wrap.querySelector('#agf-next').onclick = () => { _agFinData = new Date(ano, mes+1, 1); _agFinDiaSel = null; renderPage(currentPage); };
+  wrap.querySelector('#agf-prev').onclick = () => _agFinNav(-1);
+  wrap.querySelector('#agf-next').onclick = () => _agFinNav(1);
   wrap.querySelector('#agf-hoje').onclick = () => { _agFinData = new Date(); _agFinDiaSel = isoToday(); renderPage(currentPage); };
+  wrap.querySelector('#agf-data').onchange = (e) => _agFinIrData(e.target.value);
 
+  _agFinRenderBody();
+}
+
+// Decide o corpo conforme a visão ativa
+function _agFinRenderBody() {
+  const host = document.getElementById('agf-body');
+  if (!host) return;
+  if (_agFinView === 'semana') { _agFinRenderSemana(host); return; }
+  if (_agFinView === 'dia') {
+    _agFinDiaSel = _agFinIso(_agFinData);
+    host.innerHTML = '<div id="agf-dia"></div>';
+    _agFinRenderDia();
+    return;
+  }
+  // mês: calendário + detalhe do dia selecionado
+  host.innerHTML = '<div id="agf-cal"></div><div id="agf-dia" style="margin-top:14px"></div>';
   _agFinRenderCal();
   _agFinRenderDia();
+}
+
+// Visão SEMANA — 7 colunas (dom→sáb) com os totais do dia; clicar abre o detalhe.
+function _agFinRenderSemana(host) {
+  const per = _agFinPeriodo();
+  const start = new Date(per.ini + 'T12:00:00');
+  const nomes = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  const dias = [];
+  for (let i = 0; i < 7; i++) { const dd = new Date(start); dd.setDate(start.getDate()+i); dias.push(_agFinIso(dd)); }
+  host.innerHTML = `
+    <div class="card"><div class="card-body flush" style="padding:0;overflow-x:auto">
+      <div style="display:grid;grid-template-columns:repeat(7,minmax(110px,1fr))">
+        ${dias.map((iso,i) => {
+          const { pagar, receber } = _agFinDoDia(iso);
+          const totP = pagar.reduce((s,c)=>s+saldoConta(c),0);
+          const totR = receber.reduce((s,c)=>s+saldoContaReceber(c),0);
+          const dd = new Date(iso + 'T12:00:00');
+          const isHoje = iso === isoToday();
+          const isSel = iso === _agFinDiaSel;
+          const venc = pagar.some(()=> iso < isoToday());
+          return `
+            <div data-iso="${iso}" onclick="_agFinAbrirDia('${iso}')" style="cursor:pointer;min-height:150px;padding:9px;border-right:1px solid var(--border);${isHoje?'background:var(--info-bg);':''}${isSel?'box-shadow:inset 0 0 0 2px var(--ink);':''}">
+              <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">${nomes[i]}</div>
+              <div style="font-family:var(--serif);font-size:18px;margin-bottom:6px">${dd.getDate()}${venc?' <span title="Vencido em aberto" style="color:#B0241F">●</span>':''}</div>
+              ${pagar.length ? `<div class="ag-mes-evento" style="background:#B0241F15;color:#B0241F">↓ ${brl(totP)}</div>` : ''}
+              ${receber.length ? `<div class="ag-mes-evento" style="background:#2E7D3215;color:#2E7D32">↑ ${brl(totR)}</div>` : ''}
+              ${(!pagar.length && !receber.length) ? '<div style="font-size:10px;color:var(--muted-2)">—</div>' : ''}
+            </div>`;
+        }).join('')}
+      </div>
+    </div></div>
+    <div id="agf-dia" style="margin-top:14px"></div>
+  `;
+  if (_agFinDiaSel && dias.includes(_agFinDiaSel)) _agFinRenderDia();
+}
+
+// Abre o detalhe de um dia (usado nas visões semana e mês)
+function _agFinAbrirDia(iso) {
+  _agFinDiaSel = iso;
+  if (_agFinView === 'semana') _agFinRenderSemana(document.getElementById('agf-body'));
+  else { _agFinRenderCal(); _agFinRenderDia(); }
 }
 
 function _agFinRenderCal() {
