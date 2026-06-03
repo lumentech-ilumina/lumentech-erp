@@ -39862,15 +39862,27 @@ window.renderPedidos = renderPedidosNovo;
 let _calcTela = null;        // estado do formulário em edição
 let _calcTelaEditId = null;  // id sendo editado (null = novo orçamento)
 let _calcTelaView = 'calc';  // 'calc' | 'historico'
+let _calcAtiva = null;       // qual calculadora está aberta (null = hub de calculadoras)
+
+// Tipos de calculadora disponíveis no hub. Só 'membrana' funciona; as demais
+// ficam "em construção" até definirmos o que entra nelas.
+const _CALC_TIPOS = [
+  { id: 'membrana', nome: 'Membrana TechFrame™', desc: 'Precificação de projeto de membrana tensionada — materiais, LED, serviço, mão de obra e margem.', icon: 'box', ativa: true },
+  { id: 'em-construcao-1', nome: 'Nova calculadora', desc: 'Defina o que entra aqui.', icon: 'calculator', ativa: false },
+  { id: 'em-construcao-2', nome: 'Nova calculadora', desc: 'Defina o que entra aqui.', icon: 'calculator', ativa: false },
+];
 
 function _calcTelaNovo() {
   return {
     nome: '',
-    tela:     { qtd: 0, custo: 0, venda: 0 },
-    aluminio: { qtd: 0, custo: 0, venda: 0 },
-    pvc:      { qtd: 0, custo: 0, venda: 0 },
-    baguete:  { qtd: 0, custo: 0, venda: 0 },
-    maoObra:  { horasPorM2: 0, valorHora: 0 },
+    tela:       { qtd: 0, custo: 0, venda: 0 },   // Membrana TechFrame™ (chave 'tela' mantida p/ compat dos salvos)
+    aluminio:   { qtd: 0, custo: 0, venda: 0 },
+    pvc:        { qtd: 0, custo: 0, venda: 0 },
+    baguete:    { qtd: 0, custo: 0, venda: 0 },
+    sistemaLed: { qtd: 0, custo: 0, venda: 0 },
+    servico:    { qtd: 0, custo: 0, venda: 0 },
+    custoFixo:  0,
+    maoObra:    { horasPorM2: 0, valorHora: 0 },
     comissaoPct: 0,
     margemDesejadaPct: 30,
     observacoes: '',
@@ -39882,13 +39894,16 @@ function _calcTelaCompute(s) {
   const num = v => { const n = Number(v); return isFinite(n) ? n : 0; };
   const linha = m => { m = m || {}; const q = num(m.qtd); return { qtd: q, custo: q * num(m.custo), venda: q * num(m.venda) }; };
   const tela = linha(s.tela), alu = linha(s.aluminio), pvc = linha(s.pvc), bag = linha(s.baguete);
-  const area = tela.qtd;                                  // m² de tela
+  const led = linha(s.sistemaLed), serv = linha(s.servico);
+  const area = tela.qtd;                                  // m² de membrana
   const metrosPerfis = alu.qtd + pvc.qtd + bag.qtd;       // metros lineares de perfis
   const horasTotais = area * num(s.maoObra && s.maoObra.horasPorM2);
   const custoMaoObra = horasTotais * num(s.maoObra && s.maoObra.valorHora);
-  const custoMateriais = tela.custo + alu.custo + pvc.custo + bag.custo;
-  const custoTotal = custoMateriais + custoMaoObra;
-  const vendaBruta = tela.venda + alu.venda + pvc.venda + bag.venda;
+  const custoFixo = num(s.custoFixo);
+  const custoItens = tela.custo + alu.custo + pvc.custo + bag.custo + led.custo + serv.custo;
+  const custoMateriais = custoItens;                      // alias (compat com o painel)
+  const custoTotal = custoItens + custoMaoObra + custoFixo;
+  const vendaBruta = tela.venda + alu.venda + pvc.venda + bag.venda + led.venda + serv.venda;
   const comissaoPct = num(s.comissaoPct);
   const comissao = vendaBruta * (comissaoPct / 100);
   const lucroBruto = vendaBruta - custoTotal;
@@ -39899,8 +39914,8 @@ function _calcTelaCompute(s) {
   // proporcional ao preço: P*(1 - c - m) = custo  ->  P = custo / (1 - c - m).
   const denom = 1 - (comissaoPct / 100) - (margemDesejadaPct / 100);
   const precoSugerido = (custoTotal > 0 && denom > 0) ? custoTotal / denom : null;
-  return { tela, alu, pvc, bag, area, metrosPerfis, horasTotais, custoMaoObra,
-    custoMateriais, custoTotal, vendaBruta, comissaoPct, comissao,
+  return { tela, alu, pvc, bag, led, serv, area, metrosPerfis, horasTotais, custoMaoObra, custoFixo,
+    custoItens, custoMateriais, custoTotal, vendaBruta, comissaoPct, comissao,
     lucroBruto, lucroLiquido, margemReal, margemDesejadaPct, precoSugerido };
 }
 
@@ -39938,10 +39953,38 @@ function _calcTelaInjectStyles() {
 
 function renderCalcTela(parent) {
   _calcTelaInjectStyles();
+  if (!_calcAtiva) { _calcRenderHub(parent); return; }   // hub de calculadoras
+  _calcRenderMembrana(parent);                            // (única ativa por enquanto)
+}
+
+// Hub — cartões pra abrir cada calculadora
+function _calcRenderHub(parent) {
+  pageHead(parent, 'Calculadoras', 'Escolha uma calculadora pra começar');
+  const grid = el('<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px"></div>');
+  _CALC_TIPOS.forEach(t => {
+    const card = el('<div class="card" style="' + (t.ativa ? 'cursor:pointer' : 'opacity:.55') + '">' +
+      '<div class="card-body">' +
+        '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">' +
+          '<span style="display:inline-flex;width:34px;height:34px;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:8px;color:var(--ink)">' + (ICONS[t.icon] || ICONS.calculator) + '</span>' +
+          '<h3 style="margin:0;font-size:15px">' + t.nome + '</h3>' +
+        '</div>' +
+        '<div style="font-size:12px;color:var(--muted);line-height:1.5">' + t.desc + '</div>' +
+        (t.ativa ? '' : '<div class="ct-eyebrow" style="margin-top:10px;color:var(--warning)">Em construção</div>') +
+      '</div></div>');
+    if (t.ativa) card.onclick = () => { _calcAtiva = t.id; _calcTelaView = 'calc'; renderPage('calc-tela'); };
+    grid.appendChild(card);
+  });
+  parent.appendChild(grid);
+}
+
+function _calcRenderMembrana(parent) {
   if (!_calcTela) _calcTela = _calcTelaNovo();
   const hist = (DB.calculosTela || []).length;
-  pageHead(parent, 'Calculadora de <em>tela tensionada</em>',
-    'Precificação de projetos — custos, comissão, mão de obra e margem em tempo real');
+  const back = el('<button class="btn btn-secondary btn-sm" style="margin-bottom:10px">‹ Calculadoras</button>');
+  back.onclick = () => { _calcAtiva = null; renderPage('calc-tela'); };
+  parent.appendChild(back);
+  pageHead(parent, 'Membrana <em>TechFrame™</em>',
+    'Precificação — materiais, LED, serviço, mão de obra, comissão e margem em tempo real');
 
   const tabs = el('<div style="display:flex;gap:6px;margin-bottom:14px"></div>');
   const tCalc = el('<button class="btn btn-sm ' + (_calcTelaView === 'calc' ? 'btn-primary' : 'btn-secondary') + '">Calculadora</button>');
@@ -39980,19 +40023,23 @@ function _calcTelaRenderCalc(parent) {
       '<input type="text" id="ct-nome" value="' + escapeHtml(s.nome || '') + '" placeholder="Ex.: Fachada tensionada — Loja Centro" oninput="_calcTelaInput()"></div>' +
     '</div></div>' +
     '<div class="card" style="margin-bottom:14px"><div class="card-body">' +
-      '<div class="ct-sec">Materiais</div>' +
-      '<div class="ct-mat-head"><span>Material</span><span class="r">Qtd</span><span class="r">Custo unit.</span><span class="r">Venda unit.</span></div>' +
-      _calcTelaGrupoMaterial('Tela tensionada', 'tela', 'm²', s) +
+      '<div class="ct-sec">Itens do projeto</div>' +
+      '<div class="ct-mat-head"><span>Item</span><span class="r">Qtd</span><span class="r">Custo unit.</span><span class="r">Venda unit.</span></div>' +
+      _calcTelaGrupoMaterial('Membrana TechFrame™', 'tela', 'm²', s) +
       _calcTelaGrupoMaterial('Perfil de alumínio', 'aluminio', 'm', s) +
       _calcTelaGrupoMaterial('Perfil PVC', 'pvc', 'm', s) +
       _calcTelaGrupoMaterial('Baguete', 'baguete', 'm', s) +
+      _calcTelaGrupoMaterial('Sistema LED', 'sistemaLed', 'm', s) +
+      _calcTelaGrupoMaterial('Serviço', 'servico', 'un', s) +
     '</div></div>' +
     '<div class="card" style="margin-bottom:14px"><div class="card-body">' +
-      '<div class="ct-sec">Mão de obra</div>' +
+      '<div class="ct-sec">Mão de obra &amp; custos</div>' +
       '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">' +
         '<div class="field"><label>Horas por m²</label><input type="number" min="0" step="0.01" inputmode="decimal" id="ct-mo-horas" value="' + (s.maoObra.horasPorM2 || '') + '" oninput="_calcTelaInput()"></div>' +
         '<div class="field"><label>Valor da hora do operador (R$)</label><input type="number" min="0" step="0.01" inputmode="decimal" id="ct-mo-valor" value="' + (s.maoObra.valorHora || '') + '" oninput="_calcTelaInput()"></div>' +
-      '</div></div></div>' +
+      '</div>' +
+      '<div class="field" style="margin-top:12px"><label>Custo fixo (R$)</label><input type="number" min="0" step="0.01" inputmode="decimal" id="ct-custofixo" value="' + (s.custoFixo || '') + '" placeholder="Ex.: deslocamento, taxas, equipamento..." oninput="_calcTelaInput()"></div>' +
+    '</div></div>' +
     '<div class="card" style="margin-bottom:14px"><div class="card-body">' +
       '<div class="ct-sec">Comissão &amp; margem</div>' +
       '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">' +
@@ -40081,8 +40128,9 @@ function _calcTelaRenderDash() {
       _calcLinhaDash('Metros de perfis', fmt(r.metrosPerfis) + ' m') +
       _calcLinhaDash('Horas necessárias', fmt(r.horasTotais) + ' h') +
       '<div class="ct-eyebrow" style="margin:12px 0 4px">Custos</div>' +
-      _calcLinhaDash('Materiais', brl(r.custoMateriais)) +
+      _calcLinhaDash('Itens (materiais, LED, serviço)', brl(r.custoItens)) +
       _calcLinhaDash('Mão de obra', brl(r.custoMaoObra)) +
+      (r.custoFixo > 0 ? _calcLinhaDash('Custo fixo', brl(r.custoFixo)) : '') +
       _calcLinhaDash('Custo total', brl(r.custoTotal), true) +
       '<div class="ct-eyebrow" style="margin:12px 0 4px">Venda &amp; resultado</div>' +
       _calcLinhaDash('Valor de venda', brl(r.vendaBruta), true) +
@@ -40108,6 +40156,9 @@ function _calcTelaLer() {
   s.aluminio = { qtd: nf('ct-aluminio-qtd'), custo: nf('ct-aluminio-custo'), venda: nf('ct-aluminio-venda') };
   s.pvc      = { qtd: nf('ct-pvc-qtd'),      custo: nf('ct-pvc-custo'),      venda: nf('ct-pvc-venda') };
   s.baguete  = { qtd: nf('ct-baguete-qtd'),  custo: nf('ct-baguete-custo'),  venda: nf('ct-baguete-venda') };
+  s.sistemaLed = { qtd: nf('ct-sistemaLed-qtd'), custo: nf('ct-sistemaLed-custo'), venda: nf('ct-sistemaLed-venda') };
+  s.servico    = { qtd: nf('ct-servico-qtd'),    custo: nf('ct-servico-custo'),    venda: nf('ct-servico-venda') };
+  s.custoFixo  = nf('ct-custofixo');
   s.maoObra  = { horasPorM2: nf('ct-mo-horas'), valorHora: nf('ct-mo-valor') };
   s.comissaoPct = nf('ct-comissao');
   s.margemDesejadaPct = nf('ct-margem');
@@ -40163,11 +40214,15 @@ function abrirCalcTela(id) {
   _calcTela.aluminio = Object.assign({ qtd: 0, custo: 0, venda: 0 }, o.aluminio || {});
   _calcTela.pvc = Object.assign({ qtd: 0, custo: 0, venda: 0 }, o.pvc || {});
   _calcTela.baguete = Object.assign({ qtd: 0, custo: 0, venda: 0 }, o.baguete || {});
+  _calcTela.sistemaLed = Object.assign({ qtd: 0, custo: 0, venda: 0 }, o.sistemaLed || {});
+  _calcTela.servico = Object.assign({ qtd: 0, custo: 0, venda: 0 }, o.servico || {});
+  _calcTela.custoFixo = Number(o.custoFixo) || 0;
   _calcTela.maoObra = Object.assign({ horasPorM2: 0, valorHora: 0 }, o.maoObra || {});
   _calcTela.comissaoPct = Number(o.comissaoPct) || 0;
   _calcTela.margemDesejadaPct = Number(o.margemDesejadaPct) || 0;
   _calcTela.observacoes = o.observacoes || '';
   _calcTelaEditId = id;
+  _calcAtiva = 'membrana';
   _calcTelaView = 'calc';
   renderPage('calc-tela');
 }
@@ -40235,22 +40290,25 @@ function exportarCSVCalcTela() {
   const cn = n => (Number(n) || 0).toFixed(2).replace('.', ',');   // decimal pt-BR p/ Excel
   const txt = v => { v = String(v == null ? '' : v); return /[;\n"]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
   const L = [];
-  L.push(txt('Calculadora de tela tensionada — Lumentech'));
+  L.push(txt('Calculadora — Membrana TechFrame · Lumentech'));
   L.push([txt('Projeto'), txt(s.nome || '')].join(sep));
   L.push('');
   L.push(['Item', 'Quantidade', 'Custo unit (R$)', 'Custo total (R$)', 'Venda unit (R$)', 'Venda total (R$)'].map(txt).join(sep));
   const item = (nome, m, u) => { m = m || {}; const q = Number(m.qtd) || 0; L.push([txt(nome + ' (' + u + ')'), cn(q), cn(m.custo), cn(q * (Number(m.custo) || 0)), cn(m.venda), cn(q * (Number(m.venda) || 0))].join(sep)); };
-  item('Tela tensionada', s.tela, 'm²');
+  item('Membrana TechFrame', s.tela, 'm²');
   item('Perfil de alumínio', s.aluminio, 'm');
   item('Perfil PVC', s.pvc, 'm');
   item('Baguete', s.baguete, 'm');
+  item('Sistema LED', s.sistemaLed, 'm');
+  item('Serviço', s.servico, 'un');
   L.push('');
   const kv = (k, v) => L.push([txt(k), v].join(sep));
   kv('Área total (m²)', cn(r.area));
   kv('Metros de perfis (m)', cn(r.metrosPerfis));
   kv('Horas necessárias', cn(r.horasTotais));
-  kv('Custo dos materiais (R$)', cn(r.custoMateriais));
+  kv('Custo dos itens (R$)', cn(r.custoItens));
   kv('Custo de mão de obra (R$)', cn(r.custoMaoObra));
+  kv('Custo fixo (R$)', cn(r.custoFixo));
   kv('Custo total (R$)', cn(r.custoTotal));
   kv('Valor de venda (R$)', cn(r.vendaBruta));
   kv('Comissão (R$)', cn(r.comissao));
@@ -40275,7 +40333,7 @@ function gerarPDFCalcTela(id) {
   const r = _calcTelaCompute(s);
   const mc = _calcTelaCorMargem(r.margemReal);
   const dataStr = (typeof todayBR === 'function') ? todayBR() : new Date().toLocaleDateString('pt-BR');
-  const itens = [['Tela tensionada', s.tela, 'm²'], ['Perfil de alumínio', s.aluminio, 'm'], ['Perfil PVC', s.pvc, 'm'], ['Baguete', s.baguete, 'm']]
+  const itens = [['Membrana TechFrame', s.tela, 'm²'], ['Perfil de alumínio', s.aluminio, 'm'], ['Perfil PVC', s.pvc, 'm'], ['Baguete', s.baguete, 'm'], ['Sistema LED', s.sistemaLed, 'm'], ['Serviço', s.servico, 'un']]
     .filter(it => (Number(it[1] && it[1].qtd) || 0) > 0);
   const linhasItens = itens.map(it => {
     const nome = it[0], m = it[1], u = it[2], q = Number(m.qtd) || 0;
@@ -40294,15 +40352,16 @@ function gerarPDFCalcTela(id) {
     '.margem .v{font-weight:200;font-size:34px;color:' + mc.cor + ';letter-spacing:-.02em}.obs{margin-top:18px;border-top:1px solid #E5E7EB;padding-top:10px;font-weight:300;white-space:pre-wrap}' +
     '.foot{margin-top:28px;border-top:1px solid #E5E7EB;padding-top:10px;color:#64748B;font-size:10px;display:flex;justify-content:space-between}.tag{font-weight:300;color:#94a3b8}@media print{body{padding:0}}</style></head><body>' +
     '<div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:1px solid #0F172A;padding-bottom:10px">' +
-      '<div><div class="eyebrow">Orçamento · Tela tensionada</div><h1>' + escapeHtml(s.nome || 'Sem identificação') + '</h1></div>' +
+      '<div><div class="eyebrow">Orçamento · Membrana TechFrame™</div><h1>' + escapeHtml(s.nome || 'Sem identificação') + '</h1></div>' +
       '<div style="text-align:right"><div class="wm">LUMENTECH<sup style="font-size:.5em;vertical-align:top">®</sup></div><div class="eyebrow" style="margin-top:4px">' + dataStr + '</div></div>' +
     '</div>' +
     '<table><thead><tr><th>Item</th><th class="r">Qtd</th><th class="r">Custo unit.</th><th class="r">Custo total</th><th class="r">Venda unit.</th><th class="r">Venda total</th></tr></thead><tbody>' +
       (linhasItens || '<tr><td colspan="6" style="color:#64748B;padding:12px">Nenhum item informado</td></tr>') + '</tbody></table>' +
     '<div class="grid2">' +
       '<div><div class="eyebrow" style="margin-bottom:6px">Custos</div>' +
-        '<div class="tot"><span>Materiais</span><span>' + brl(r.custoMateriais) + '</span></div>' +
+        '<div class="tot"><span>Itens (materiais, LED, serviço)</span><span>' + brl(r.custoItens) + '</span></div>' +
         '<div class="tot"><span>Mão de obra (' + fmt(r.horasTotais) + ' h)</span><span>' + brl(r.custoMaoObra) + '</span></div>' +
+        (r.custoFixo > 0 ? '<div class="tot"><span>Custo fixo</span><span>' + brl(r.custoFixo) + '</span></div>' : '') +
         '<div class="tot b"><span>Custo total</span><span>' + brl(r.custoTotal) + '</span></div></div>' +
       '<div><div class="eyebrow" style="margin-bottom:6px">Venda &amp; resultado</div>' +
         '<div class="tot"><span>Valor de venda</span><span>' + brl(r.vendaBruta) + '</span></div>' +
