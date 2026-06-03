@@ -30,6 +30,7 @@
     crm:                  'crm',
     metas:                'metas',
     orcamentos:           'orcamentos',
+    'calc-tela':          'orcamentos',   // calculadora de precificação — herda acesso de Orçamentos
     pedidos:              'pedidos',
     trocas:               'trocas',
     devolucoes:           'devolucoes',
