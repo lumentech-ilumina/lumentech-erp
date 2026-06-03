@@ -55,20 +55,35 @@ const teste = `
   assert(z.margemReal === 0 && z.vendaBruta === 0, 'sem dados: margem 0, sem NaN');
   assert(z.precoSugerido === null || isFinite(z.precoSugerido), 'preço sugerido não vira NaN/Infinito');
 
-  console.log('\\n=== Itens novos: Sistema LED, Serviço e Custo fixo entram no cálculo ===');
+  console.log('\\n=== Membranas (TechFrame/Impressa/Linho) + Sistema LED (estoque) + Serviço + Custo fixo ===');
   const r2 = _calcTelaCompute({
-    tela:       { qtd: 10, custo: 50,  venda: 120 },  // 500 / 1200
-    sistemaLed: { qtd: 8,  custo: 25,  venda: 60 },   // 200 / 480
-    servico:    { qtd: 2,  custo: 100, venda: 300 },  // 200 / 600
+    tela:     { qtd: 10, custo: 50, venda: 120 },  // 500 / 1200
+    impressa: { qtd: 5,  custo: 40, venda: 90 },   // 200 / 450
+    linho:    { qtd: 0,  custo: 0,  venda: 0 },
     custoFixo: 150,
     maoObra: { horasPorM2: 0, valorHora: 0 },
+    temLed: true,
+    led: { m2: 15, fundoCm: 5,
+      fontes: [{ qtd: 2, custo: 30, venda: 50 }],   // 60 / 100
+      fitas:  [{ qtd: 8, custo: 25, venda: 60 }] }, // 200 / 480
+    temServico: true,
+    servico: {
+      cabo:     { qtd: 10, custo: 3,   venda: 7 },  // 30 / 70
+      parafuso: { qtd: 20, custo: 0.5, venda: 1 },  // 10 / 20
+      maoObraM2: 20,        // 20 × área(15) = 300
+      custosVariaveis: 80,
+    },
     comissaoPct: 0, margemDesejadaPct: 30,
   });
-  assert(quase(r2.custoItens, 900), 'custoItens = 500+200+200 = R$ 900 (membrana+LED+serviço)');
-  assert(quase(r2.custoFixo, 150), 'custo fixo lido = R$ 150');
-  assert(quase(r2.custoTotal, 1050), 'custo total = itens 900 + fixo 150 = R$ 1.050');
-  assert(quase(r2.vendaBruta, 2280), 'venda = 1200+480+600 = R$ 2.280 (inclui LED e serviço)');
-  assert(quase(r2.lucroLiquido, 1230), 'lucro líquido = 2280 − 1050 = R$ 1.230');
+  assert(quase(r2.area, 15), 'área total = membrana 10 + impressa 5 = 15 m²');
+  assert(quase(r2.ledCusto, 260) && quase(r2.ledVenda, 580), 'LED: custo 60+200=260, venda 100+480=580');
+  assert(quase(r2.custoMaoObraM2, 300), 'mão de obra por m² = 20 × 15 = R$ 300');
+  assert(quase(r2.custoItens, 1000), 'custoItens = 700 (membranas) + 260 (LED) + 40 (cabo+parafuso) = R$ 1.000');
+  assert(quase(r2.custoTotal, 1530), 'custo total = itens 1000 + moM² 300 + fixo 150 + variáveis 80 = R$ 1.530');
+  assert(quase(r2.vendaBruta, 2320), 'venda = 1650 (membranas) + 580 (LED) + 90 (serviço) = R$ 2.320');
+  assert(quase(r2.lucroLiquido, 790), 'lucro líquido = 2320 − 1530 = R$ 790');
+  const off = _calcTelaCompute({ tela:{qtd:10,custo:50,venda:120}, led:{fitas:[{qtd:99,custo:99,venda:99}]}, servico:{maoObraM2:99,custosVariaveis:99} });
+  assert(off.ledCusto === 0 && off.custoMaoObraM2 === 0 && off.custosVariaveis === 0, 'toggles desligados: LED e serviço NÃO entram no cálculo');
 
   console.log('\\n=== Margem desejada inviável (comissão+margem ≥ 100%) não quebra ===');
   const inv = _calcTelaCompute(Object.assign(_calcTelaNovo(), { tela:{qtd:1,custo:10,venda:20}, comissaoPct: 60, margemDesejadaPct: 50 }));

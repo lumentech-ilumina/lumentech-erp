@@ -39875,46 +39875,76 @@ const _CALC_TIPOS = [
 function _calcTelaNovo() {
   return {
     nome: '',
+    // Itens do projeto (custo + venda) — membranas em m², perfis/baguete em m
     tela:       { qtd: 0, custo: 0, venda: 0 },   // Membrana TechFrame™ (chave 'tela' mantida p/ compat dos salvos)
+    impressa:   { qtd: 0, custo: 0, venda: 0 },   // Membrana impressa (m²)
+    linho:      { qtd: 0, custo: 0, venda: 0 },   // Membrana linho (m²)
     aluminio:   { qtd: 0, custo: 0, venda: 0 },
     pvc:        { qtd: 0, custo: 0, venda: 0 },
     baguete:    { qtd: 0, custo: 0, venda: 0 },
-    sistemaLed: { qtd: 0, custo: 0, venda: 0 },
-    servico:    { qtd: 0, custo: 0, venda: 0 },
     custoFixo:  0,
     maoObra:    { horasPorM2: 0, valorHora: 0 },
+    // Sistema LED (opcional) — fontes/fitas vêm do estoque (custo) + venda editável
+    temLed: false,
+    led: { m2: 0, fundoCm: 0, fontes: [], fitas: [] },   // item: {produtoId, nome, qtd, custo, venda}
+    // Serviço (opcional)
+    temServico: false,
+    servico: {
+      cabo:     { qtd: 0, custo: 0, venda: 0 },   // m
+      parafuso: { qtd: 0, custo: 0, venda: 0 },   // un
+      maoObraM2: 0,         // R$/m² (custo)
+      custosVariaveis: 0,   // R$ (custo)
+    },
     comissaoPct: 0,
     margemDesejadaPct: 30,
     observacoes: '',
   };
 }
 
-// Cálculo PURO (sem DOM) — fácil de testar. Segue exatamente a especificação.
+// Cálculo PURO (sem DOM) — fácil de testar.
 function _calcTelaCompute(s) {
   const num = v => { const n = Number(v); return isFinite(n) ? n : 0; };
   const linha = m => { m = m || {}; const q = num(m.qtd); return { qtd: q, custo: q * num(m.custo), venda: q * num(m.venda) }; };
-  const tela = linha(s.tela), alu = linha(s.aluminio), pvc = linha(s.pvc), bag = linha(s.baguete);
-  const led = linha(s.sistemaLed), serv = linha(s.servico);
-  const area = tela.qtd;                                  // m² de membrana
+  const somaLista = (arr, campo) => (Array.isArray(arr) ? arr : []).reduce((t, it) => t + num(it.qtd) * num(it[campo]), 0);
+
+  const tela = linha(s.tela), imp = linha(s.impressa), lin = linha(s.linho);
+  const alu = linha(s.aluminio), pvc = linha(s.pvc), bag = linha(s.baguete);
+  const area = tela.qtd + imp.qtd + lin.qtd;              // m² total de membrana
   const metrosPerfis = alu.qtd + pvc.qtd + bag.qtd;       // metros lineares de perfis
+
+  // Mão de obra (horas × valor/hora) — mantida
   const horasTotais = area * num(s.maoObra && s.maoObra.horasPorM2);
   const custoMaoObra = horasTotais * num(s.maoObra && s.maoObra.valorHora);
+
+  // Sistema LED (fontes + fitas do estoque)
+  const led = s.led || {};
+  const ledCusto = s.temLed ? (somaLista(led.fontes, 'custo') + somaLista(led.fitas, 'custo')) : 0;
+  const ledVenda = s.temLed ? (somaLista(led.fontes, 'venda') + somaLista(led.fitas, 'venda')) : 0;
+
+  // Serviço
+  const sv = s.servico || {};
+  const cabo = linha(sv.cabo), paraf = linha(sv.parafuso);
+  const servItensCusto = s.temServico ? (cabo.custo + paraf.custo) : 0;
+  const servItensVenda = s.temServico ? (cabo.venda + paraf.venda) : 0;
+  const custoMaoObraM2 = s.temServico ? num(sv.maoObraM2) * area : 0;
+  const custosVariaveis = s.temServico ? num(sv.custosVariaveis) : 0;
+
   const custoFixo = num(s.custoFixo);
-  const custoItens = tela.custo + alu.custo + pvc.custo + bag.custo + led.custo + serv.custo;
+  const custoItens = tela.custo + imp.custo + lin.custo + alu.custo + pvc.custo + bag.custo + ledCusto + servItensCusto;
   const custoMateriais = custoItens;                      // alias (compat com o painel)
-  const custoTotal = custoItens + custoMaoObra + custoFixo;
-  const vendaBruta = tela.venda + alu.venda + pvc.venda + bag.venda + led.venda + serv.venda;
+  const custoTotal = custoItens + custoMaoObra + custoMaoObraM2 + custoFixo + custosVariaveis;
+  const vendaBruta = tela.venda + imp.venda + lin.venda + alu.venda + pvc.venda + bag.venda + ledVenda + servItensVenda;
+
   const comissaoPct = num(s.comissaoPct);
   const comissao = vendaBruta * (comissaoPct / 100);
   const lucroBruto = vendaBruta - custoTotal;
   const lucroLiquido = vendaBruta - custoTotal - comissao;
   const margemReal = vendaBruta > 0 ? (lucroLiquido / vendaBruta) * 100 : 0;
   const margemDesejadaPct = num(s.margemDesejadaPct);
-  // Preço sugerido pra atingir a margem LÍQUIDA desejada, considerando a comissão
-  // proporcional ao preço: P*(1 - c - m) = custo  ->  P = custo / (1 - c - m).
   const denom = 1 - (comissaoPct / 100) - (margemDesejadaPct / 100);
   const precoSugerido = (custoTotal > 0 && denom > 0) ? custoTotal / denom : null;
-  return { tela, alu, pvc, bag, led, serv, area, metrosPerfis, horasTotais, custoMaoObra, custoFixo,
+  return { tela, imp, lin, alu, pvc, bag, area, metrosPerfis, horasTotais, custoMaoObra,
+    custoMaoObraM2, custosVariaveis, custoFixo, ledCusto, ledVenda, servItensCusto, servItensVenda,
     custoItens, custoMateriais, custoTotal, vendaBruta, comissaoPct, comissao,
     lucroBruto, lucroLiquido, margemReal, margemDesejadaPct, precoSugerido };
 }
@@ -40011,6 +40041,135 @@ function _calcTelaGrupoMaterial(titulo, key, unidade, s) {
   '</div>';
 }
 
+// Cabeçalho de colunas das listas de estoque (Fontes/Fitas)
+function _calcLedHeadHTML() {
+  return '<div style="display:grid;grid-template-columns:1.5fr .7fr .8fr .8fr 30px;gap:8px;font-size:9.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);font-weight:500;padding-bottom:5px;border-bottom:1px solid var(--border)">' +
+    '<span>Produto</span><span style="text-align:right">Qtd</span><span style="text-align:right">Custo</span><span style="text-align:right">Venda</span><span></span></div>';
+}
+// Lista de itens vindos do estoque (fontes/fitas): custo é do estoque (read-only), venda editável.
+function _calcEstoqueListaHTML(tipo, itens) {
+  const rows = (itens || []).map((it, i) =>
+    '<div style="display:grid;grid-template-columns:1.5fr .7fr .8fr .8fr 30px;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid var(--surface-2)">' +
+      '<div style="font-size:12.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(it.nome || '') + '">' + escapeHtml(it.nome || '—') + '</div>' +
+      '<input type="number" min="0" step="0.01" id="ct-led-' + tipo + '-' + i + '-qtd" value="' + (it.qtd || '') + '" placeholder="Qtd" style="text-align:right;width:100%" oninput="_calcTelaInput()">' +
+      '<div style="font-family:var(--mono,monospace);font-size:11.5px;color:var(--muted);text-align:right" title="Custo do estoque">' + brl(it.custo || 0) + '</div>' +
+      '<input type="number" min="0" step="0.01" id="ct-led-' + tipo + '-' + i + '-venda" value="' + (it.venda || '') + '" placeholder="Venda" style="text-align:right;width:100%" oninput="_calcTelaInput()">' +
+      '<button class="row-action-btn danger" title="Remover" onclick="_calcRemoverEstoque(\'' + tipo + '\',' + i + ')">' + ICONS.trash + '</button>' +
+    '</div>'
+  ).join('');
+  return _calcLedHeadHTML() + (rows || '<div style="font-size:11.5px;color:var(--muted-2);padding:8px 0">Nenhum item adicionado.</div>') +
+    '<button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="_calcAbrirEstoque(\'' + tipo + '\')">' + ICONS.plus + ' Adicionar do estoque</button>';
+}
+
+// Seção Sistema LED (ligada por toggle)
+function _calcLedSecaoHTML(s) {
+  const led = s.led || {};
+  return '<div class="card" style="margin-bottom:14px"><div class="card-body">' +
+    '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0' + (s.temLed ? ';margin-bottom:12px' : '') + '">' +
+      '<input type="checkbox" id="ct-tem-led" ' + (s.temLed ? 'checked' : '') + ' onchange="_calcToggleSecao(\'led\', this.checked)">' +
+      '<span class="ct-sec" style="margin:0">Sistema LED</span>' +
+    '</label>' +
+    (s.temLed ? (
+      '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:14px">' +
+        '<div class="field"><label>m² da membrana</label><input type="number" min="0" step="0.01" id="ct-led-m2" value="' + (led.m2 || '') + '" placeholder="auto" oninput="_calcTelaInput()"></div>' +
+        '<div class="field"><label>Fundo (cm)</label><input type="number" min="0" step="0.1" id="ct-led-fundo" value="' + (led.fundoCm || '') + '" oninput="_calcTelaInput()"></div>' +
+      '</div>' +
+      '<div class="ct-sec" style="margin:10px 0 6px">Fontes</div>' + _calcEstoqueListaHTML('fontes', led.fontes) +
+      '<div class="ct-sec" style="margin:18px 0 6px">Fitas</div>' + _calcEstoqueListaHTML('fitas', led.fitas)
+    ) : '') +
+  '</div></div>';
+}
+
+// Seção Serviço (ligada por toggle)
+function _calcServicoSecaoHTML(s) {
+  const sv = s.servico || {};
+  const mat = (titulo, key, un) => { const m = sv[key] || {}; return '<div class="ct-mat-row">' +
+    '<div class="ct-mat-nome">' + titulo + '<span class="ct-mat-un">' + un + '</span></div>' +
+    '<input type="number" min="0" step="0.01" id="ct-serv-' + key + '-qtd" value="' + (m.qtd || '') + '" placeholder="Qtd" oninput="_calcTelaInput()">' +
+    '<input type="number" min="0" step="0.01" id="ct-serv-' + key + '-custo" value="' + (m.custo || '') + '" placeholder="Custo R$" oninput="_calcTelaInput()">' +
+    '<input type="number" min="0" step="0.01" id="ct-serv-' + key + '-venda" value="' + (m.venda || '') + '" placeholder="Venda R$" oninput="_calcTelaInput()">' +
+  '</div>'; };
+  return '<div class="card" style="margin-bottom:14px"><div class="card-body">' +
+    '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0' + (s.temServico ? ';margin-bottom:12px' : '') + '">' +
+      '<input type="checkbox" id="ct-tem-servico" ' + (s.temServico ? 'checked' : '') + ' onchange="_calcToggleSecao(\'servico\', this.checked)">' +
+      '<span class="ct-sec" style="margin:0">Serviço</span>' +
+    '</label>' +
+    (s.temServico ? (
+      '<div class="ct-mat-head"><span>Item</span><span class="r">Qtd</span><span class="r">Custo unit.</span><span class="r">Venda unit.</span></div>' +
+      mat('Cabo', 'cabo', 'm') + mat('Parafuso', 'parafuso', 'un') +
+      '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px">' +
+        '<div class="field"><label>Valor de mão de obra (R$/m²)</label><input type="number" min="0" step="0.01" id="ct-serv-maoobram2" value="' + (sv.maoObraM2 || '') + '" oninput="_calcTelaInput()"></div>' +
+        '<div class="field"><label>Custos variáveis (R$)</label><input type="number" min="0" step="0.01" id="ct-serv-custosvar" value="' + (sv.custosVariaveis || '') + '" oninput="_calcTelaInput()"></div>' +
+      '</div>'
+    ) : '') +
+  '</div></div>';
+}
+
+// Liga/desliga uma seção (LED ou Serviço) preservando o que já foi digitado.
+function _calcToggleSecao(sec, on) {
+  _calcTelaLer();
+  if (sec === 'led') {
+    _calcTela.temLed = on;
+    if (on && !(Number(_calcTela.led && _calcTela.led.m2) > 0)) {
+      _calcTela.led = _calcTela.led || { m2: 0, fundoCm: 0, fontes: [], fitas: [] };
+      _calcTela.led.m2 = _calcTelaCompute(_calcTela).area || 0;   // puxa o m² da membrana
+    }
+  }
+  if (sec === 'servico') _calcTela.temServico = on;
+  renderPage('calc-tela');
+}
+
+// Picker de produto do estoque (Fonte/Fita) — traz o custo; venda sugerida do cadastro.
+function _calcAbrirEstoque(tipo) {
+  _calcTelaLer();
+  const prods = (DB.produtos || []);
+  const custoDe = p => Number(p.precoCompra || p.custoMedio || p.preco || 0);
+  const vendaDe = p => Number(p.precoVenda || p.preco || 0);
+  const m = openModal({
+    title: 'Adicionar do estoque · ' + (tipo === 'fontes' ? 'Fonte' : 'Fita'),
+    size: 'md',
+    body: '<input id="ct-est-busca" placeholder="Buscar por nome, SKU ou código..." style="width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:6px;font:inherit;margin-bottom:10px">' +
+          '<div id="ct-est-lista" style="max-height:360px;overflow:auto"></div>',
+    footer: '<button class="btn btn-secondary" id="ct-est-cancel">Fechar</button>',
+  });
+  const lista = m.root.querySelector('#ct-est-lista');
+  const render = (q) => {
+    q = (q || '').toLowerCase().trim();
+    const fil = prods.filter(p => !q || (p.nome || '').toLowerCase().includes(q) || (p.sku || '').toLowerCase().includes(q) || (p.codigoInterno || '').toLowerCase().includes(q)).slice(0, 80);
+    lista.innerHTML = fil.length ? fil.map(p =>
+      '<div class="ct-est-item" data-id="' + escapeHtml(String(p.id)) + '" style="display:flex;justify-content:space-between;gap:10px;padding:9px 8px;border-bottom:1px solid var(--border);cursor:pointer">' +
+        '<div style="min-width:0"><div style="font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escapeHtml(p.nome || '—') + '</div>' +
+        '<div style="font-size:10.5px;color:var(--muted)">' + escapeHtml(p.sku || '') + '</div></div>' +
+        '<div style="text-align:right;font-family:var(--mono,monospace);font-size:11.5px;white-space:nowrap;color:var(--muted)">custo ' + brl(custoDe(p)) + '</div>' +
+      '</div>'
+    ).join('') : '<div style="padding:16px;color:var(--muted);text-align:center;font-size:12px">Nenhum produto encontrado.</div>';
+    lista.querySelectorAll('.ct-est-item').forEach(elx => {
+      elx.onmouseover = () => elx.style.background = 'var(--surface-2)';
+      elx.onmouseout = () => elx.style.background = '';
+      elx.onclick = () => {
+        const p = prods.find(x => String(x.id) === elx.dataset.id);
+        if (!p) return;
+        if (!_calcTela.led) _calcTela.led = { m2: 0, fundoCm: 0, fontes: [], fitas: [] };
+        if (!Array.isArray(_calcTela.led[tipo])) _calcTela.led[tipo] = [];
+        _calcTela.led[tipo].push({ produtoId: p.id, nome: p.nome || p.sku || 'Item', qtd: 1, custo: custoDe(p), venda: vendaDe(p) });
+        m.close();
+        renderPage('calc-tela');
+      };
+    });
+  };
+  render('');
+  const busca = m.root.querySelector('#ct-est-busca');
+  busca.oninput = () => render(busca.value);
+  m.root.querySelector('#ct-est-cancel').onclick = () => m.close();
+  setTimeout(() => { try { busca.focus(); } catch (_) {} }, 50);
+}
+
+function _calcRemoverEstoque(tipo, idx) {
+  _calcTelaLer();
+  if (_calcTela.led && Array.isArray(_calcTela.led[tipo])) _calcTela.led[tipo].splice(idx, 1);
+  renderPage('calc-tela');
+}
+
 function _calcTelaRenderCalc(parent) {
   const s = _calcTela;
   const wrap = el('<div class="ct-grid"></div>');
@@ -40026,11 +40185,11 @@ function _calcTelaRenderCalc(parent) {
       '<div class="ct-sec">Itens do projeto</div>' +
       '<div class="ct-mat-head"><span>Item</span><span class="r">Qtd</span><span class="r">Custo unit.</span><span class="r">Venda unit.</span></div>' +
       _calcTelaGrupoMaterial('Membrana TechFrame™', 'tela', 'm²', s) +
+      _calcTelaGrupoMaterial('Impressa', 'impressa', 'm²', s) +
+      _calcTelaGrupoMaterial('Linho', 'linho', 'm²', s) +
       _calcTelaGrupoMaterial('Perfil de alumínio', 'aluminio', 'm', s) +
       _calcTelaGrupoMaterial('Perfil PVC', 'pvc', 'm', s) +
       _calcTelaGrupoMaterial('Baguete', 'baguete', 'm', s) +
-      _calcTelaGrupoMaterial('Sistema LED', 'sistemaLed', 'm', s) +
-      _calcTelaGrupoMaterial('Serviço', 'servico', 'un', s) +
     '</div></div>' +
     '<div class="card" style="margin-bottom:14px"><div class="card-body">' +
       '<div class="ct-sec">Mão de obra &amp; custos</div>' +
@@ -40040,6 +40199,8 @@ function _calcTelaRenderCalc(parent) {
       '</div>' +
       '<div class="field" style="margin-top:12px"><label>Custo fixo (R$)</label><input type="number" min="0" step="0.01" inputmode="decimal" id="ct-custofixo" value="' + (s.custoFixo || '') + '" placeholder="Ex.: deslocamento, taxas, equipamento..." oninput="_calcTelaInput()"></div>' +
     '</div></div>' +
+    _calcLedSecaoHTML(s) +
+    _calcServicoSecaoHTML(s) +
     '<div class="card" style="margin-bottom:14px"><div class="card-body">' +
       '<div class="ct-sec">Comissão &amp; margem</div>' +
       '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">' +
@@ -40129,8 +40290,11 @@ function _calcTelaRenderDash() {
       _calcLinhaDash('Horas necessárias', fmt(r.horasTotais) + ' h') +
       '<div class="ct-eyebrow" style="margin:12px 0 4px">Custos</div>' +
       _calcLinhaDash('Itens (materiais, LED, serviço)', brl(r.custoItens)) +
-      _calcLinhaDash('Mão de obra', brl(r.custoMaoObra)) +
+      (r.custoMaoObra > 0 ? _calcLinhaDash('Mão de obra (horas)', brl(r.custoMaoObra)) : '') +
+      (r.custoMaoObraM2 > 0 ? _calcLinhaDash('Mão de obra (por m²)', brl(r.custoMaoObraM2)) : '') +
+      (r.custosVariaveis > 0 ? _calcLinhaDash('Custos variáveis', brl(r.custosVariaveis)) : '') +
       (r.custoFixo > 0 ? _calcLinhaDash('Custo fixo', brl(r.custoFixo)) : '') +
+      ((r.custoMaoObra <= 0 && r.custoMaoObraM2 <= 0 && r.custosVariaveis <= 0 && r.custoFixo <= 0) ? _calcLinhaDash('Mão de obra', brl(0)) : '') +
       _calcLinhaDash('Custo total', brl(r.custoTotal), true) +
       '<div class="ct-eyebrow" style="margin:12px 0 4px">Venda &amp; resultado</div>' +
       _calcLinhaDash('Valor de venda', brl(r.vendaBruta), true) +
@@ -40151,15 +40315,41 @@ function _calcTelaLer() {
   const g = id => { const e = document.getElementById(id); return e ? e.value : ''; };
   const nf = id => { const n = Number(g(id)); return isFinite(n) ? n : 0; };
   const s = _calcTela || (_calcTela = _calcTelaNovo());
+  const ex = id => document.getElementById(id) != null;
   s.nome = g('ct-nome');
   s.tela     = { qtd: nf('ct-tela-qtd'),     custo: nf('ct-tela-custo'),     venda: nf('ct-tela-venda') };
+  s.impressa = { qtd: nf('ct-impressa-qtd'), custo: nf('ct-impressa-custo'), venda: nf('ct-impressa-venda') };
+  s.linho    = { qtd: nf('ct-linho-qtd'),    custo: nf('ct-linho-custo'),    venda: nf('ct-linho-venda') };
   s.aluminio = { qtd: nf('ct-aluminio-qtd'), custo: nf('ct-aluminio-custo'), venda: nf('ct-aluminio-venda') };
   s.pvc      = { qtd: nf('ct-pvc-qtd'),      custo: nf('ct-pvc-custo'),      venda: nf('ct-pvc-venda') };
   s.baguete  = { qtd: nf('ct-baguete-qtd'),  custo: nf('ct-baguete-custo'),  venda: nf('ct-baguete-venda') };
-  s.sistemaLed = { qtd: nf('ct-sistemaLed-qtd'), custo: nf('ct-sistemaLed-custo'), venda: nf('ct-sistemaLed-venda') };
-  s.servico    = { qtd: nf('ct-servico-qtd'),    custo: nf('ct-servico-custo'),    venda: nf('ct-servico-venda') };
   s.custoFixo  = nf('ct-custofixo');
   s.maoObra  = { horasPorM2: nf('ct-mo-horas'), valorHora: nf('ct-mo-valor') };
+
+  // Toggles (só sobrescreve se o checkbox está no DOM)
+  if (ex('ct-tem-led'))     s.temLed = document.getElementById('ct-tem-led').checked;
+  if (ex('ct-tem-servico')) s.temServico = document.getElementById('ct-tem-servico').checked;
+
+  // Sistema LED — custo das fontes/fitas vem do estoque (fica no estado); qtd/venda são editáveis
+  if (!s.led) s.led = { m2: 0, fundoCm: 0, fontes: [], fitas: [] };
+  if (ex('ct-led-m2'))    s.led.m2 = nf('ct-led-m2');
+  if (ex('ct-led-fundo')) s.led.fundoCm = nf('ct-led-fundo');
+  ['fontes', 'fitas'].forEach(tipo => {
+    (s.led[tipo] || []).forEach((it, i) => {
+      if (ex('ct-led-' + tipo + '-' + i + '-qtd'))   it.qtd = nf('ct-led-' + tipo + '-' + i + '-qtd');
+      if (ex('ct-led-' + tipo + '-' + i + '-venda')) it.venda = nf('ct-led-' + tipo + '-' + i + '-venda');
+    });
+  });
+
+  // Serviço
+  if (!s.servico) s.servico = { cabo: {}, parafuso: {}, maoObraM2: 0, custosVariaveis: 0 };
+  if (ex('ct-serv-cabo-qtd')) {
+    s.servico.cabo     = { qtd: nf('ct-serv-cabo-qtd'),     custo: nf('ct-serv-cabo-custo'),     venda: nf('ct-serv-cabo-venda') };
+    s.servico.parafuso = { qtd: nf('ct-serv-parafuso-qtd'), custo: nf('ct-serv-parafuso-custo'), venda: nf('ct-serv-parafuso-venda') };
+    s.servico.maoObraM2 = nf('ct-serv-maoobram2');
+    s.servico.custosVariaveis = nf('ct-serv-custosvar');
+  }
+
   s.comissaoPct = nf('ct-comissao');
   s.margemDesejadaPct = nf('ct-margem');
   s.observacoes = g('ct-obs');
@@ -40211,13 +40401,19 @@ function abrirCalcTela(id) {
   _calcTela = _calcTelaNovo();
   _calcTela.nome = o.nome || '';
   _calcTela.tela = Object.assign({ qtd: 0, custo: 0, venda: 0 }, o.tela || {});
+  _calcTela.impressa = Object.assign({ qtd: 0, custo: 0, venda: 0 }, o.impressa || {});
+  _calcTela.linho = Object.assign({ qtd: 0, custo: 0, venda: 0 }, o.linho || {});
   _calcTela.aluminio = Object.assign({ qtd: 0, custo: 0, venda: 0 }, o.aluminio || {});
   _calcTela.pvc = Object.assign({ qtd: 0, custo: 0, venda: 0 }, o.pvc || {});
   _calcTela.baguete = Object.assign({ qtd: 0, custo: 0, venda: 0 }, o.baguete || {});
-  _calcTela.sistemaLed = Object.assign({ qtd: 0, custo: 0, venda: 0 }, o.sistemaLed || {});
-  _calcTela.servico = Object.assign({ qtd: 0, custo: 0, venda: 0 }, o.servico || {});
   _calcTela.custoFixo = Number(o.custoFixo) || 0;
   _calcTela.maoObra = Object.assign({ horasPorM2: 0, valorHora: 0 }, o.maoObra || {});
+  _calcTela.temLed = !!o.temLed;
+  _calcTela.led = Object.assign({ m2: 0, fundoCm: 0, fontes: [], fitas: [] }, o.led || {});
+  _calcTela.led.fontes = Array.isArray(_calcTela.led.fontes) ? _calcTela.led.fontes : [];
+  _calcTela.led.fitas = Array.isArray(_calcTela.led.fitas) ? _calcTela.led.fitas : [];
+  _calcTela.temServico = !!o.temServico;
+  _calcTela.servico = Object.assign({ cabo: { qtd: 0, custo: 0, venda: 0 }, parafuso: { qtd: 0, custo: 0, venda: 0 }, maoObraM2: 0, custosVariaveis: 0 }, (o.servico && o.servico.cabo ? o.servico : {}));
   _calcTela.comissaoPct = Number(o.comissaoPct) || 0;
   _calcTela.margemDesejadaPct = Number(o.margemDesejadaPct) || 0;
   _calcTela.observacoes = o.observacoes || '';
@@ -40296,18 +40492,28 @@ function exportarCSVCalcTela() {
   L.push(['Item', 'Quantidade', 'Custo unit (R$)', 'Custo total (R$)', 'Venda unit (R$)', 'Venda total (R$)'].map(txt).join(sep));
   const item = (nome, m, u) => { m = m || {}; const q = Number(m.qtd) || 0; L.push([txt(nome + ' (' + u + ')'), cn(q), cn(m.custo), cn(q * (Number(m.custo) || 0)), cn(m.venda), cn(q * (Number(m.venda) || 0))].join(sep)); };
   item('Membrana TechFrame', s.tela, 'm²');
+  item('Impressa', s.impressa, 'm²');
+  item('Linho', s.linho, 'm²');
   item('Perfil de alumínio', s.aluminio, 'm');
   item('Perfil PVC', s.pvc, 'm');
   item('Baguete', s.baguete, 'm');
-  item('Sistema LED', s.sistemaLed, 'm');
-  item('Serviço', s.servico, 'un');
+  if (s.temLed && s.led) {
+    (s.led.fontes || []).forEach(it => item('Fonte · ' + (it.nome || ''), it, 'un'));
+    (s.led.fitas || []).forEach(it => item('Fita · ' + (it.nome || ''), it, 'un'));
+  }
+  if (s.temServico && s.servico) {
+    item('Cabo', s.servico.cabo, 'm');
+    item('Parafuso', s.servico.parafuso, 'un');
+  }
   L.push('');
   const kv = (k, v) => L.push([txt(k), v].join(sep));
   kv('Área total (m²)', cn(r.area));
   kv('Metros de perfis (m)', cn(r.metrosPerfis));
   kv('Horas necessárias', cn(r.horasTotais));
   kv('Custo dos itens (R$)', cn(r.custoItens));
-  kv('Custo de mão de obra (R$)', cn(r.custoMaoObra));
+  kv('Mão de obra - horas (R$)', cn(r.custoMaoObra));
+  kv('Mão de obra - por m² (R$)', cn(r.custoMaoObraM2));
+  kv('Custos variáveis (R$)', cn(r.custosVariaveis));
   kv('Custo fixo (R$)', cn(r.custoFixo));
   kv('Custo total (R$)', cn(r.custoTotal));
   kv('Valor de venda (R$)', cn(r.vendaBruta));
@@ -40333,8 +40539,16 @@ function gerarPDFCalcTela(id) {
   const r = _calcTelaCompute(s);
   const mc = _calcTelaCorMargem(r.margemReal);
   const dataStr = (typeof todayBR === 'function') ? todayBR() : new Date().toLocaleDateString('pt-BR');
-  const itens = [['Membrana TechFrame', s.tela, 'm²'], ['Perfil de alumínio', s.aluminio, 'm'], ['Perfil PVC', s.pvc, 'm'], ['Baguete', s.baguete, 'm'], ['Sistema LED', s.sistemaLed, 'm'], ['Serviço', s.servico, 'un']]
-    .filter(it => (Number(it[1] && it[1].qtd) || 0) > 0);
+  const itensBase = [['Membrana TechFrame', s.tela, 'm²'], ['Impressa', s.impressa, 'm²'], ['Linho', s.linho, 'm²'], ['Perfil de alumínio', s.aluminio, 'm'], ['Perfil PVC', s.pvc, 'm'], ['Baguete', s.baguete, 'm']];
+  if (s.temLed && s.led) {
+    (s.led.fontes || []).forEach(it => itensBase.push(['Fonte · ' + (it.nome || ''), it, 'un']));
+    (s.led.fitas || []).forEach(it => itensBase.push(['Fita · ' + (it.nome || ''), it, 'un']));
+  }
+  if (s.temServico && s.servico) {
+    itensBase.push(['Cabo', s.servico.cabo, 'm']);
+    itensBase.push(['Parafuso', s.servico.parafuso, 'un']);
+  }
+  const itens = itensBase.filter(it => (Number(it[1] && it[1].qtd) || 0) > 0);
   const linhasItens = itens.map(it => {
     const nome = it[0], m = it[1], u = it[2], q = Number(m.qtd) || 0;
     return '<tr><td>' + nome + '</td><td class="r">' + fmt(q) + ' ' + u + '</td><td class="r">' + brl(m.custo) + '</td><td class="r">' + brl(q * (Number(m.custo) || 0)) + '</td><td class="r">' + brl(m.venda) + '</td><td class="r">' + brl(q * (Number(m.venda) || 0)) + '</td></tr>';
@@ -40360,7 +40574,9 @@ function gerarPDFCalcTela(id) {
     '<div class="grid2">' +
       '<div><div class="eyebrow" style="margin-bottom:6px">Custos</div>' +
         '<div class="tot"><span>Itens (materiais, LED, serviço)</span><span>' + brl(r.custoItens) + '</span></div>' +
-        '<div class="tot"><span>Mão de obra (' + fmt(r.horasTotais) + ' h)</span><span>' + brl(r.custoMaoObra) + '</span></div>' +
+        (r.custoMaoObra > 0 ? '<div class="tot"><span>Mão de obra (' + fmt(r.horasTotais) + ' h)</span><span>' + brl(r.custoMaoObra) + '</span></div>' : '') +
+        (r.custoMaoObraM2 > 0 ? '<div class="tot"><span>Mão de obra (por m²)</span><span>' + brl(r.custoMaoObraM2) + '</span></div>' : '') +
+        (r.custosVariaveis > 0 ? '<div class="tot"><span>Custos variáveis</span><span>' + brl(r.custosVariaveis) + '</span></div>' : '') +
         (r.custoFixo > 0 ? '<div class="tot"><span>Custo fixo</span><span>' + brl(r.custoFixo) + '</span></div>' : '') +
         '<div class="tot b"><span>Custo total</span><span>' + brl(r.custoTotal) + '</span></div></div>' +
       '<div><div class="eyebrow" style="margin-bottom:6px">Venda &amp; resultado</div>' +
