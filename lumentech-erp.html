@@ -39870,11 +39870,23 @@ function _calcTelaInjectStyles() {
   const st = document.createElement('style');
   st.id = 'ct-styles';
   st.textContent =
-    '.ct-grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(290px,1fr);gap:16px;align-items:start}' +
-    '.ct-eyebrow{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.15em;color:var(--muted)}' +
+    '.ct-grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(300px,1fr);gap:18px;align-items:start}' +
+    '.ct-eyebrow{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.18em;color:var(--muted)}' +
+    '.ct-sec{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.18em;color:var(--muted);margin:0 0 10px}' +
     '.ct-grid #calc-dash{position:sticky;top:12px}' +
     '.ct-grid input,.ct-grid textarea{font-variant-numeric:tabular-nums}' +
-    '@media(max-width:900px){.ct-grid{grid-template-columns:1fr}.ct-grid #calc-dash{position:static}}';
+    '.ct-mat-head,.ct-mat-row{display:grid;grid-template-columns:1.3fr .85fr 1fr 1fr;gap:10px;align-items:center}' +
+    '.ct-mat-head{padding:0 0 7px;border-bottom:1px solid var(--border);margin-bottom:4px}' +
+    '.ct-mat-head span{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);font-weight:500}' +
+    '.ct-mat-head span.r{text-align:right}' +
+    '.ct-mat-row{padding:8px 0;border-bottom:1px solid var(--surface-2)}' +
+    '.ct-mat-row:last-child{border-bottom:0;padding-bottom:0}' +
+    '.ct-mat-nome{font-size:13px;font-weight:500;line-height:1.15}' +
+    '.ct-mat-un{display:block;font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;font-weight:500;margin-top:2px}' +
+    '.ct-mat-row input{width:100%;text-align:right}' +
+    '.ct-dash-row{display:flex;justify-content:space-between;align-items:baseline;padding:4px 0}' +
+    '@media(max-width:900px){.ct-grid{grid-template-columns:1fr}.ct-grid #calc-dash{position:static}}' +
+    '@media(max-width:680px){.ct-mat-head{display:none}.ct-mat-row{grid-template-columns:1fr 1fr;gap:6px 10px;padding:10px 0}.ct-mat-nome{grid-column:1/-1;margin-bottom:2px}}';
   document.head.appendChild(st);
 }
 
@@ -39901,15 +39913,13 @@ function renderCalcTela(parent) {
 
 function _calcTelaGrupoMaterial(titulo, key, unidade, s) {
   const m = s[key] || {};
-  return '' +
-   '<div class="card" style="margin-bottom:12px">' +
-     '<div class="card-head"><h3>' + titulo + '</h3><span class="ct-eyebrow">' + unidade + '</span></div>' +
-     '<div class="card-body" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">' +
-       '<div class="field"><label>Quantidade (' + unidade + ')</label><input type="number" min="0" step="0.01" inputmode="decimal" id="ct-' + key + '-qtd" value="' + (m.qtd || '') + '" oninput="_calcTelaInput()"></div>' +
-       '<div class="field"><label>Custo / ' + unidade + ' (R$)</label><input type="number" min="0" step="0.01" inputmode="decimal" id="ct-' + key + '-custo" value="' + (m.custo || '') + '" oninput="_calcTelaInput()"></div>' +
-       '<div class="field"><label>Venda / ' + unidade + ' (R$)</label><input type="number" min="0" step="0.01" inputmode="decimal" id="ct-' + key + '-venda" value="' + (m.venda || '') + '" oninput="_calcTelaInput()"></div>' +
-     '</div>' +
-   '</div>';
+  const inp = (suf, ph) => '<input type="number" min="0" step="0.01" inputmode="decimal" id="ct-' + key + '-' + suf + '" value="' + (m[suf] || '') + '" placeholder="' + ph + '" oninput="_calcTelaInput()">';
+  return '<div class="ct-mat-row">' +
+    '<div class="ct-mat-nome">' + titulo + '<span class="ct-mat-un">' + unidade + '</span></div>' +
+    inp('qtd', 'Qtd') +
+    inp('custo', 'Custo R$') +
+    inp('venda', 'Venda R$') +
+  '</div>';
 }
 
 function _calcTelaRenderCalc(parent) {
@@ -39918,27 +39928,35 @@ function _calcTelaRenderCalc(parent) {
 
   const form = el('<div></div>');
   form.innerHTML = '' +
-    '<div class="card" style="margin-bottom:12px"><div class="card-body">' +
+    '<div class="card" style="margin-bottom:14px"><div class="card-body">' +
+      '<div class="ct-sec">Projeto</div>' +
       '<div class="field"><label>Identificação do projeto / cliente</label>' +
       '<input type="text" id="ct-nome" value="' + escapeHtml(s.nome || '') + '" placeholder="Ex.: Fachada tensionada — Loja Centro" oninput="_calcTelaInput()"></div>' +
     '</div></div>' +
-    _calcTelaGrupoMaterial('Tela tensionada', 'tela', 'm²', s) +
-    _calcTelaGrupoMaterial('Perfil de alumínio', 'aluminio', 'm', s) +
-    _calcTelaGrupoMaterial('Perfil PVC', 'pvc', 'm', s) +
-    _calcTelaGrupoMaterial('Baguete', 'baguete', 'm', s) +
-    '<div class="card" style="margin-bottom:12px"><div class="card-head"><h3>Mão de obra</h3></div>' +
-      '<div class="card-body" style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">' +
+    '<div class="card" style="margin-bottom:14px"><div class="card-body">' +
+      '<div class="ct-sec">Materiais</div>' +
+      '<div class="ct-mat-head"><span>Material</span><span class="r">Qtd</span><span class="r">Custo unit.</span><span class="r">Venda unit.</span></div>' +
+      _calcTelaGrupoMaterial('Tela tensionada', 'tela', 'm²', s) +
+      _calcTelaGrupoMaterial('Perfil de alumínio', 'aluminio', 'm', s) +
+      _calcTelaGrupoMaterial('Perfil PVC', 'pvc', 'm', s) +
+      _calcTelaGrupoMaterial('Baguete', 'baguete', 'm', s) +
+    '</div></div>' +
+    '<div class="card" style="margin-bottom:14px"><div class="card-body">' +
+      '<div class="ct-sec">Mão de obra</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">' +
         '<div class="field"><label>Horas por m²</label><input type="number" min="0" step="0.01" inputmode="decimal" id="ct-mo-horas" value="' + (s.maoObra.horasPorM2 || '') + '" oninput="_calcTelaInput()"></div>' +
         '<div class="field"><label>Valor da hora do operador (R$)</label><input type="number" min="0" step="0.01" inputmode="decimal" id="ct-mo-valor" value="' + (s.maoObra.valorHora || '') + '" oninput="_calcTelaInput()"></div>' +
-      '</div></div>' +
-    '<div class="card" style="margin-bottom:12px"><div class="card-head"><h3>Comissão &amp; margem</h3></div>' +
-      '<div class="card-body" style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">' +
+      '</div></div></div>' +
+    '<div class="card" style="margin-bottom:14px"><div class="card-body">' +
+      '<div class="ct-sec">Comissão &amp; margem</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">' +
         '<div class="field"><label>Comissão (%)</label><input type="number" min="0" step="0.1" inputmode="decimal" id="ct-comissao" value="' + (s.comissaoPct || '') + '" oninput="_calcTelaInput()"></div>' +
         '<div class="field"><label>Margem desejada (%)</label><input type="number" min="0" step="0.1" inputmode="decimal" id="ct-margem" value="' + (s.margemDesejadaPct || '') + '" oninput="_calcTelaInput()"></div>' +
-      '</div></div>' +
-    '<div class="card"><div class="card-head"><h3>Observações do projeto</h3></div>' +
-      '<div class="card-body"><textarea id="ct-obs" rows="3" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font:inherit;resize:vertical" placeholder="Detalhes técnicos, condições, prazos..." oninput="_calcTelaInput()">' + escapeHtml(s.observacoes || '') + '</textarea></div>' +
-    '</div>';
+      '</div></div></div>' +
+    '<div class="card"><div class="card-body">' +
+      '<div class="ct-sec">Observações</div>' +
+      '<textarea id="ct-obs" rows="3" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font:inherit;resize:vertical" placeholder="Detalhes técnicos, condições, prazos..." oninput="_calcTelaInput()">' + escapeHtml(s.observacoes || '') + '</textarea>' +
+    '</div></div>';
 
   const dash = el('<div id="calc-dash"></div>');
   wrap.appendChild(form);
@@ -39970,14 +39988,15 @@ function _calcTelaRenderDash() {
           '<div style="height:100%;width:' + larguraBarra + '%;background:' + mc.cor + ';transition:width .25s ease"></div></div>' +
         (r.margemDesejadaPct ? '<div class="ct-eyebrow" style="margin-top:8px">Meta: ' + fmt(r.margemDesejadaPct) + '%</div>' : '') +
       '</div>' +
+      '<div class="ct-eyebrow" style="margin:2px 0 4px">Volume</div>' +
       _calcLinhaDash('Área total', fmt(r.area) + ' m²') +
       _calcLinhaDash('Metros de perfis', fmt(r.metrosPerfis) + ' m') +
       _calcLinhaDash('Horas necessárias', fmt(r.horasTotais) + ' h') +
-      '<hr style="border:0;border-top:1px solid var(--border);margin:10px 0">' +
-      _calcLinhaDash('Custo dos materiais', brl(r.custoMateriais)) +
-      _calcLinhaDash('Custo de mão de obra', brl(r.custoMaoObra)) +
+      '<div class="ct-eyebrow" style="margin:12px 0 4px">Custos</div>' +
+      _calcLinhaDash('Materiais', brl(r.custoMateriais)) +
+      _calcLinhaDash('Mão de obra', brl(r.custoMaoObra)) +
       _calcLinhaDash('Custo total', brl(r.custoTotal), true) +
-      '<hr style="border:0;border-top:1px solid var(--border);margin:10px 0">' +
+      '<div class="ct-eyebrow" style="margin:12px 0 4px">Venda &amp; resultado</div>' +
       _calcLinhaDash('Valor de venda', brl(r.vendaBruta), true) +
       _calcLinhaDash('Comissão (' + fmt(r.comissaoPct) + '%)', '− ' + brl(r.comissao)) +
       _calcLinhaDash('Lucro bruto', brl(r.lucroBruto)) +
@@ -40222,13 +40241,13 @@ const MENU_GRUPOS = [
   // Grupo VENDAS
   { tipo: 'grupo', id: 'g_vendas', label: 'Vendas', icon: 'shopping-bag', filhos: [
     { id: 'crm',           label: 'CRM',                      icon: 'crm' },
-    { id: 'metas',         label: 'Metas Comerciais',         icon: 'award' },
     { id: 'orcamentos',    label: 'Orçamentos',               icon: 'file-text' },
-    { id: 'calc-tela',     label: 'Calculadora de tela',      icon: 'calculator' },
     { id: 'pedidos',       label: 'Pedidos',                  icon: 'shopping-bag' },
     { id: 'trocas',        label: 'Trocas',                   icon: 'rotate' },
     { id: 'devolucoes',    label: 'Devoluções',               icon: 'rotate' },
     { id: 'creditos',      label: 'Créditos de clientes',     icon: 'dollar' },
+    { id: 'calc-tela',     label: 'Calculadora de tela',      icon: 'calculator' },
+    { id: 'metas',         label: 'Metas Comerciais',         icon: 'award' },
   ]},
 
   // Grupo CADASTROS
