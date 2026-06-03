@@ -285,9 +285,29 @@ const repo = (() => {
       .filter(item => item && item.id != null)
       .map(item => ({ id: String(item.id), dados: item }));
 
+    // Upsert em LOTES POR TAMANHO. Produtos carregam imagens base64 inline e um upsert
+    // único de todo o catálogo estoura o limite de tamanho da requisição — o erro
+    // derrubava o sync inteiro e o registro nunca chegava ao servidor (e depois o
+    // bootstrap o apagava). Quebramos por bytes (não por contagem) porque uma única
+    // foto pesada já pode encher um lote. Se um lote falhar, o erro propaga (caller
+    // registra) e o hash NÃO é marcado, então o próximo saveDB tenta de novo.
     if (rows.length > 0) {
-      const { error } = await sb().from(tbl).upsert(rows, { onConflict: 'id' });
-      if (error) throw error;
+      const LIMITE_LOTE = 1_500_000; // ~1.5MB por requisição (folga sob o limite do PostgREST)
+      let lote = [];
+      let bytes = 0;
+      const enviar = async () => {
+        if (!lote.length) return;
+        const { error } = await sb().from(tbl).upsert(lote, { onConflict: 'id' });
+        if (error) throw error;
+        lote = []; bytes = 0;
+      };
+      for (const row of rows) {
+        const tam = JSON.stringify(row).length;
+        if (lote.length && bytes + tam > LIMITE_LOTE) await enviar();
+        lote.push(row);
+        bytes += tam;
+      }
+      await enviar();
     }
 
     const localIds = new Set(rows.map(r => r.id));
@@ -419,28 +439,66 @@ const repo = (() => {
       const tbl = _entityTable(entity);
       const key = _entityKey(entity);
       const { ok, items } = results[i];
-      const manterPadrao = items.length === 0 && _backedByDefaults.has(key)
-        && Array.isArray(window.DB?.[key]) && window.DB[key].length > 0;
-      if (window.DB && !manterPadrao) window.DB[key] = items;
-      // Só registra estado de sync se carregou de verdade — assim a tabela ausente não vira
-      // delete-missing no próximo sync (que apagaria dados locais por engano).
-      if (ok) {
-        _serverIds[tbl] = new Set(items.map(x => String(x.id)));
-        _lastSyncedHash[tbl] = _entityHash(items);
+
+      // CARREGAMENTO FALHOU (tabela ausente / erro de rede): NUNCA sobrescreve o
+      // que já está em memória. Um erro transitório jamais pode apagar dado local.
+      // (Antes o código zerava DB[key] aqui — era uma das causas de "cadastrei e sumiu".)
+      if (!ok) return;
+
+      const serverIds = new Set(items.map(x => String(x.id)));
+
+      if (_backedByDefaults.has(key)) {
+        // Config com padrões embutidos: servidor manda; se vier vazio, mantém o padrão local.
+        const manterPadrao = items.length === 0
+          && Array.isArray(window.DB?.[key]) && window.DB[key].length > 0;
+        if (window.DB && !manterPadrao) window.DB[key] = items;
+      } else {
+        // ENTIDADES DE DADOS (produtos, clientes, pedidos...): preserva registros
+        // criados localmente que AINDA NÃO subiram pro servidor — senão o bootstrap
+        // (que roda no login E a cada 60s no auto-refresh) apagaria o que a pessoa
+        // acabou de cadastrar antes do sync debounced concluir.
+        //
+        // Critério de "pendente de upload": id que não está no servidor agora E que
+        // nunca foi conhecido como existente no servidor (_serverIds anterior). Se o id
+        // ESTAVA no servidor e sumiu, foi deletado em outro dispositivo → respeita o
+        // delete e não ressuscita. Se nunca esteve, foi criado aqui → mantém.
+        const prevServer = _serverIds[tbl] || new Set();
+        const locais = Array.isArray(window.DB?.[key]) ? window.DB[key] : [];
+        const pendentes = locais.filter(x =>
+          x && x.id != null &&
+          !serverIds.has(String(x.id)) &&
+          !prevServer.has(String(x.id))
+        );
+        if (window.DB) window.DB[key] = pendentes.length ? items.concat(pendentes) : items;
       }
+
+      // Estado de sync reflete o que o SERVIDOR tem. Como DB[key] pode conter pendentes
+      // (hash diferente), o próximo saveDB dispara o upsert e eles sobem de verdade.
+      _serverIds[tbl] = serverIds;
+      _lastSyncedHash[tbl] = _entityHash(items);
     });
 
     // Singletons (configOS, counters, empresa) — já carregados acima em paralelo.
     if (settings) {
       SINGLETON_KEYS.forEach(key => {
-        if (settings[key] && window.DB) {
+        if (key === 'counters' && window.DB) {
+          // CONTADORES NUNCA REGRIDEM. app_settings é last-write-wins: um dispositivo
+          // atrasado podia sobrescrever o contador por um valor menor → IDs repetidos
+          // (e produtos "sumindo" porque o upsert por id sobrescrevia o anterior).
+          // Merge por MÁXIMO: o efetivo é sempre o maior entre local e servidor.
+          const local  = window.DB.counters || {};
+          const remoto = settings[key] || {};
+          const merged = { ...local };
+          for (const k of Object.keys(remoto)) {
+            merged[k] = Math.max(Number(local[k] || 0), Number(remoto[k] || 0));
+          }
+          window.DB.counters = merged;
+          // NÃO marca o hash como sincronizado de propósito: assim o merge (>=) sobe
+          // pro servidor no próximo saveDB e o servidor converge pra cima também.
+        } else if (settings[key] && window.DB) {
           // Veio do servidor → aplica e marca como sincronizado.
           window.DB[key] = settings[key];
           _lastSyncedSingletonHash[key] = JSON.stringify(window.DB[key] || {});
-        } else if (key === 'counters') {
-          // counters: NÃO força upload (evita corrida de IDs entre dispositivos) —
-          // mantém o comportamento atual marcando o hash como já sincronizado.
-          if (window.DB) _lastSyncedSingletonHash[key] = JSON.stringify(window.DB[key] || {});
         }
         // configOS/empresa local-only (sem valor no servidor): NÃO marca o hash,
         // pra subir no próximo saveDB em vez de ficar preso só no navegador.

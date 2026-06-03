@@ -628,9 +628,56 @@ const _SIMPLE_NUM_KEYS = new Set([
   'pat',   // Patrimônio
   'imp',   // Impostos / itens fiscais
 ]);
+// Mapa key -> [coleção, campo] onde o número aparece. Usado pra AUTO-CURAR o
+// contador: nunca emitir um número <= ao maior já presente na coleção. Isso mata
+// a repetição que acontecia quando o sync trazia registros de outro dispositivo
+// com números mais altos (ou quando o contador regredia em app_settings).
+const _COUNTER_COLECAO = {
+  prod: ['produtos','id'],        sku:  ['produtos','sku'],
+  orc:  ['orcamentos','id'],      ped:  ['pedidos','id'],
+  op:   ['ops','id'],             os:   ['osServicos','id'],
+  cli:  ['clientes','id'],        par:  ['parceiros','id'],
+  forn: ['fornecedores','id'],    vend: ['vendedores','id'],
+  cr:   ['contasReceber','id'],   cp:   ['contasPagar','id'],
+  cred: ['creditosCliente','id'], pc:   ['pedidosCompra','id'],
+  inv:  ['inventarios','id'],     tr:   ['transferencias','id'],
+  dep:  ['depositos','id'],       end:  ['enderecos','id'],
+  mov:  ['movimentacoes','id'],   veic: ['veiculos','id'],
+  mot:  ['motoristas','id'],      rot:  ['rotas','id'],
+  pat:  ['patrimonios','id'],     imp:  ['impostos','id'],
+  fup:  ['followUp','id'],        nfs:  ['notas','id'],
+  opp:  ['oportunidades','id'],   task: ['tarefasCrm','id'],
+  auto: ['automacoes','id'],      troca:['trocas','id'],
+  dev:  ['devolucoes','id'],
+};
+function _maxNumeroEmUso(key) {
+  const m = _COUNTER_COLECAO[key];
+  if (!m) return 0;
+  const arr = DB[m[0]];
+  if (!Array.isArray(arr)) return 0;
+  let max = 0;
+  for (const item of arr) {
+    const v = item && item[m[1]];
+    if (v == null) continue;
+    const mt = String(v).match(/(\d+)\s*$/); // pega os dígitos finais (ID puro ou PREFIXO-0001)
+    if (mt) { const num = parseInt(mt[1], 10); if (num > max) max = num; }
+  }
+  return max;
+}
+// High-water mark por sessão: o auto-refresh (60s) recarrega counters do servidor
+// e poderia regredir o contador no meio da sessão. Isto impede regressão.
+const _hwmContadores = {};
 function nextId(key, prefix, digits = 4) {
-  const n = DB.counters[key] || 1;
+  // O próximo número é SEMPRE maior que: o contador, o maior número já em uso na
+  // coleção e o último emitido nesta sessão. Garante que NUNCA repete (lacunas são
+  // aceitáveis; repetição não é).
+  const n = Math.max(
+    Number(DB.counters[key] || 1),
+    _maxNumeroEmUso(key) + 1,
+    (_hwmContadores[key] || 0) + 1
+  );
   DB.counters[key] = n + 1;
+  _hwmContadores[key] = n;
   // Para os módulos principais, retorna só o número (1, 2, 3...)
   if (_SIMPLE_NUM_KEYS.has(key)) return String(n);
   // Demais entidades mantêm prefixo (compatibilidade legada)
