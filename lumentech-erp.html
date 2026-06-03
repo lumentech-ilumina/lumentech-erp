@@ -39965,19 +39965,23 @@ function _calcTelaInjectStyles() {
     '.ct-eyebrow{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.18em;color:var(--muted)}' +
     '.ct-sec{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.18em;color:var(--muted);margin:0 0 10px}' +
     '.ct-grid #calc-dash{position:sticky;top:12px}' +
-    '.ct-grid input,.ct-grid textarea{font-variant-numeric:tabular-nums}' +
-    '.ct-mat-head,.ct-mat-row{display:grid;grid-template-columns:1.3fr .85fr 1fr 1fr;gap:10px;align-items:center}' +
-    '.ct-mat-head{padding:0 0 7px;border-bottom:1px solid var(--border);margin-bottom:4px}' +
-    '.ct-mat-head span{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);font-weight:500}' +
+    // inputs uniformes e discretos pra reduzir poluição visual
+    '.ct-grid input[type=number],.ct-grid input[type=text]{width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:6px;font:inherit;font-size:12.5px;background:var(--surface);font-variant-numeric:tabular-nums}' +
+    '.ct-grid input:focus{outline:none;border-color:var(--ink)}' +
+    '.ct-grid input::placeholder{color:var(--muted-2)}' +
+    '.ct-grid input[readonly]{background:var(--surface-2);color:var(--muted);cursor:not-allowed}' +
+    '.ct-grid textarea{font-variant-numeric:tabular-nums}' +
+    '.ct-tbl{overflow-x:auto;margin:0 -2px}' +              // rola no celular sem perder o cabeçalho
+    '.ct-mat-head,.ct-mat-row{display:grid;grid-template-columns:1.5fr .8fr 1fr 1fr;gap:8px;align-items:center;min-width:360px}' +
+    '.ct-mat-head{padding:0 0 6px;border-bottom:1px solid var(--border);margin-bottom:2px}' +
+    '.ct-mat-head span{font-size:9.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);font-weight:500}' +
     '.ct-mat-head span.r{text-align:right}' +
-    '.ct-mat-row{padding:8px 0;border-bottom:1px solid var(--surface-2)}' +
-    '.ct-mat-row:last-child{border-bottom:0;padding-bottom:0}' +
-    '.ct-mat-nome{font-size:13px;font-weight:500;line-height:1.15}' +
-    '.ct-mat-un{display:block;font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;font-weight:500;margin-top:2px}' +
-    '.ct-mat-row input{width:100%;text-align:right}' +
-    '.ct-dash-row{display:flex;justify-content:space-between;align-items:baseline;padding:4px 0}' +
-    '@media(max-width:900px){.ct-grid{grid-template-columns:1fr}.ct-grid #calc-dash{position:static}}' +
-    '@media(max-width:680px){.ct-mat-head{display:none}.ct-mat-row{grid-template-columns:1fr 1fr;gap:6px 10px;padding:10px 0}.ct-mat-nome{grid-column:1/-1;margin-bottom:2px}}';
+    '.ct-mat-row{padding:6px 0;border-bottom:1px solid var(--surface-2)}' +
+    '.ct-mat-row:last-child{border-bottom:0}' +
+    '.ct-mat-nome{font-size:12.5px;font-weight:500;line-height:1.12}' +
+    '.ct-mat-un{display:block;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-weight:500;margin-top:1px}' +
+    '.ct-mat-row input{text-align:right}' +
+    '@media(max-width:900px){.ct-grid{grid-template-columns:1fr}.ct-grid #calc-dash{position:static}}';
   document.head.appendChild(st);
 }
 
@@ -40032,32 +40036,28 @@ function _calcRenderMembrana(parent) {
 
 function _calcTelaGrupoMaterial(titulo, key, unidade, s) {
   const m = s[key] || {};
-  const inp = (suf, ph) => '<input type="number" min="0" step="0.01" inputmode="decimal" id="ct-' + key + '-' + suf + '" value="' + (m[suf] || '') + '" placeholder="' + ph + '" oninput="_calcTelaInput()">';
+  const inp = (suf) => '<input type="number" min="0" step="0.01" inputmode="decimal" id="ct-' + key + '-' + suf + '" value="' + (m[suf] || '') + '" oninput="_calcTelaInput()">';
   return '<div class="ct-mat-row">' +
     '<div class="ct-mat-nome">' + titulo + '<span class="ct-mat-un">' + unidade + '</span></div>' +
-    inp('qtd', 'Qtd') +
-    inp('custo', 'Custo R$') +
-    inp('venda', 'Venda R$') +
+    inp('qtd') + inp('custo') + inp('venda') +
   '</div>';
 }
 
-// Cabeçalho de colunas das listas de estoque (Fontes/Fitas)
-function _calcLedHeadHTML() {
-  return '<div style="display:grid;grid-template-columns:1.5fr .7fr .8fr .8fr 30px;gap:8px;font-size:9.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);font-weight:500;padding-bottom:5px;border-bottom:1px solid var(--border)">' +
-    '<span>Produto</span><span style="text-align:right">Qtd</span><span style="text-align:right">Custo</span><span style="text-align:right">Venda</span><span></span></div>';
-}
 // Lista de itens vindos do estoque (fontes/fitas): custo é do estoque (read-only), venda editável.
 function _calcEstoqueListaHTML(tipo, itens) {
+  const grid = 'display:grid;grid-template-columns:1.6fr .7fr .8fr .8fr 28px;gap:8px;align-items:center;min-width:330px';
+  const head = '<div style="' + grid + ';padding-bottom:5px;border-bottom:1px solid var(--border)">' +
+    '<span class="ct-mat-un" style="display:inline">Produto</span><span class="ct-mat-un" style="display:inline;text-align:right">Qtd</span><span class="ct-mat-un" style="display:inline;text-align:right">Custo</span><span class="ct-mat-un" style="display:inline;text-align:right">Venda</span><span></span></div>';
   const rows = (itens || []).map((it, i) =>
-    '<div style="display:grid;grid-template-columns:1.5fr .7fr .8fr .8fr 30px;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid var(--surface-2)">' +
-      '<div style="font-size:12.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(it.nome || '') + '">' + escapeHtml(it.nome || '—') + '</div>' +
-      '<input type="number" min="0" step="0.01" id="ct-led-' + tipo + '-' + i + '-qtd" value="' + (it.qtd || '') + '" placeholder="Qtd" style="text-align:right;width:100%" oninput="_calcTelaInput()">' +
-      '<div style="font-family:var(--mono,monospace);font-size:11.5px;color:var(--muted);text-align:right" title="Custo do estoque">' + brl(it.custo || 0) + '</div>' +
-      '<input type="number" min="0" step="0.01" id="ct-led-' + tipo + '-' + i + '-venda" value="' + (it.venda || '') + '" placeholder="Venda" style="text-align:right;width:100%" oninput="_calcTelaInput()">' +
+    '<div style="' + grid + ';padding:6px 0;border-bottom:1px solid var(--surface-2)">' +
+      '<div style="font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(it.nome || '') + '">' + escapeHtml(it.nome || '—') + '</div>' +
+      '<input type="number" min="0" step="0.01" id="ct-led-' + tipo + '-' + i + '-qtd" value="' + (it.qtd || '') + '" oninput="_calcTelaInput()">' +
+      '<div style="font-family:var(--mono,monospace);font-size:11px;color:var(--muted);text-align:right" title="Custo do estoque">' + brl(it.custo || 0) + '</div>' +
+      '<input type="number" min="0" step="0.01" id="ct-led-' + tipo + '-' + i + '-venda" value="' + (it.venda || '') + '" oninput="_calcTelaInput()">' +
       '<button class="row-action-btn danger" title="Remover" onclick="_calcRemoverEstoque(\'' + tipo + '\',' + i + ')">' + ICONS.trash + '</button>' +
     '</div>'
   ).join('');
-  return _calcLedHeadHTML() + (rows || '<div style="font-size:11.5px;color:var(--muted-2);padding:8px 0">Nenhum item adicionado.</div>') +
+  return '<div class="ct-tbl">' + head + (rows || '<div style="font-size:11.5px;color:var(--muted-2);padding:8px 0">Nenhum item adicionado.</div>') + '</div>' +
     '<button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="_calcAbrirEstoque(\'' + tipo + '\')">' + ICONS.plus + ' Adicionar do estoque</button>';
 }
 
@@ -40071,7 +40071,7 @@ function _calcLedSecaoHTML(s) {
     '</label>' +
     (s.temLed ? (
       '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:14px">' +
-        '<div class="field"><label>m² da membrana</label><input type="number" min="0" step="0.01" id="ct-led-m2" value="' + (led.m2 || '') + '" placeholder="auto" oninput="_calcTelaInput()"></div>' +
+        '<div class="field"><label>m² da membrana <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted-2)">(da Membrana TechFrame)</span></label><input type="number" id="ct-led-m2" value="' + (Number(s.tela && s.tela.qtd) || '') + '" readonly title="Vem do campo Membrana TechFrame"></div>' +
         '<div class="field"><label>Fundo (cm)</label><input type="number" min="0" step="0.1" id="ct-led-fundo" value="' + (led.fundoCm || '') + '" oninput="_calcTelaInput()"></div>' +
       '</div>' +
       '<div class="ct-sec" style="margin:10px 0 6px">Fontes</div>' + _calcEstoqueListaHTML('fontes', led.fontes) +
@@ -40085,9 +40085,9 @@ function _calcServicoSecaoHTML(s) {
   const sv = s.servico || {};
   const mat = (titulo, key, un) => { const m = sv[key] || {}; return '<div class="ct-mat-row">' +
     '<div class="ct-mat-nome">' + titulo + '<span class="ct-mat-un">' + un + '</span></div>' +
-    '<input type="number" min="0" step="0.01" id="ct-serv-' + key + '-qtd" value="' + (m.qtd || '') + '" placeholder="Qtd" oninput="_calcTelaInput()">' +
-    '<input type="number" min="0" step="0.01" id="ct-serv-' + key + '-custo" value="' + (m.custo || '') + '" placeholder="Custo R$" oninput="_calcTelaInput()">' +
-    '<input type="number" min="0" step="0.01" id="ct-serv-' + key + '-venda" value="' + (m.venda || '') + '" placeholder="Venda R$" oninput="_calcTelaInput()">' +
+    '<input type="number" min="0" step="0.01" id="ct-serv-' + key + '-qtd" value="' + (m.qtd || '') + '" oninput="_calcTelaInput()">' +
+    '<input type="number" min="0" step="0.01" id="ct-serv-' + key + '-custo" value="' + (m.custo || '') + '" oninput="_calcTelaInput()">' +
+    '<input type="number" min="0" step="0.01" id="ct-serv-' + key + '-venda" value="' + (m.venda || '') + '" oninput="_calcTelaInput()">' +
   '</div>'; };
   return '<div class="card" style="margin-bottom:14px"><div class="card-body">' +
     '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0' + (s.temServico ? ';margin-bottom:12px' : '') + '">' +
@@ -40095,8 +40095,10 @@ function _calcServicoSecaoHTML(s) {
       '<span class="ct-sec" style="margin:0">Serviço</span>' +
     '</label>' +
     (s.temServico ? (
-      '<div class="ct-mat-head"><span>Item</span><span class="r">Qtd</span><span class="r">Custo unit.</span><span class="r">Venda unit.</span></div>' +
-      mat('Cabo', 'cabo', 'm') + mat('Parafuso', 'parafuso', 'un') +
+      '<div class="ct-tbl">' +
+        '<div class="ct-mat-head"><span>Item</span><span class="r">Qtd</span><span class="r">Custo unit.</span><span class="r">Venda unit.</span></div>' +
+        mat('Cabo', 'cabo', 'm') + mat('Parafuso', 'parafuso', 'un') +
+      '</div>' +
       '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px">' +
         '<div class="field"><label>Valor de mão de obra (R$/m²)</label><input type="number" min="0" step="0.01" id="ct-serv-maoobram2" value="' + (sv.maoObraM2 || '') + '" oninput="_calcTelaInput()"></div>' +
         '<div class="field"><label>Custos variáveis (R$)</label><input type="number" min="0" step="0.01" id="ct-serv-custosvar" value="' + (sv.custosVariaveis || '') + '" oninput="_calcTelaInput()"></div>' +
@@ -40110,10 +40112,8 @@ function _calcToggleSecao(sec, on) {
   _calcTelaLer();
   if (sec === 'led') {
     _calcTela.temLed = on;
-    if (on && !(Number(_calcTela.led && _calcTela.led.m2) > 0)) {
-      _calcTela.led = _calcTela.led || { m2: 0, fundoCm: 0, fontes: [], fitas: [] };
-      _calcTela.led.m2 = _calcTelaCompute(_calcTela).area || 0;   // puxa o m² da membrana
-    }
+    _calcTela.led = _calcTela.led || { m2: 0, fundoCm: 0, fontes: [], fitas: [] };
+    _calcTela.led.m2 = Number(_calcTela.tela && _calcTela.tela.qtd) || 0;   // vem da Membrana TechFrame
   }
   if (sec === 'servico') _calcTela.temServico = on;
   renderPage('calc-tela');
@@ -40183,13 +40183,15 @@ function _calcTelaRenderCalc(parent) {
     '</div></div>' +
     '<div class="card" style="margin-bottom:14px"><div class="card-body">' +
       '<div class="ct-sec">Itens do projeto</div>' +
-      '<div class="ct-mat-head"><span>Item</span><span class="r">Qtd</span><span class="r">Custo unit.</span><span class="r">Venda unit.</span></div>' +
-      _calcTelaGrupoMaterial('Membrana TechFrame™', 'tela', 'm²', s) +
-      _calcTelaGrupoMaterial('Impressa', 'impressa', 'm²', s) +
-      _calcTelaGrupoMaterial('Linho', 'linho', 'm²', s) +
-      _calcTelaGrupoMaterial('Perfil de alumínio', 'aluminio', 'm', s) +
-      _calcTelaGrupoMaterial('Perfil PVC', 'pvc', 'm', s) +
-      _calcTelaGrupoMaterial('Baguete', 'baguete', 'm', s) +
+      '<div class="ct-tbl">' +
+        '<div class="ct-mat-head"><span>Item</span><span class="r">Qtd</span><span class="r">Custo unit.</span><span class="r">Venda unit.</span></div>' +
+        _calcTelaGrupoMaterial('Membrana TechFrame™', 'tela', 'm²', s) +
+        _calcTelaGrupoMaterial('Impressa', 'impressa', 'm²', s) +
+        _calcTelaGrupoMaterial('Linho', 'linho', 'm²', s) +
+        _calcTelaGrupoMaterial('Perfil de alumínio', 'aluminio', 'm', s) +
+        _calcTelaGrupoMaterial('Perfil PVC', 'pvc', 'm', s) +
+        _calcTelaGrupoMaterial('Baguete', 'baguete', 'm', s) +
+      '</div>' +
     '</div></div>' +
     '<div class="card" style="margin-bottom:14px"><div class="card-body">' +
       '<div class="ct-sec">Mão de obra &amp; custos</div>' +
@@ -40332,7 +40334,7 @@ function _calcTelaLer() {
 
   // Sistema LED — custo das fontes/fitas vem do estoque (fica no estado); qtd/venda são editáveis
   if (!s.led) s.led = { m2: 0, fundoCm: 0, fontes: [], fitas: [] };
-  if (ex('ct-led-m2'))    s.led.m2 = nf('ct-led-m2');
+  s.led.m2 = Number(s.tela.qtd) || 0;   // m² da membrana = Membrana TechFrame (read-only)
   if (ex('ct-led-fundo')) s.led.fundoCm = nf('ct-led-fundo');
   ['fontes', 'fitas'].forEach(tipo => {
     (s.led[tipo] || []).forEach((it, i) => {
@@ -40355,7 +40357,13 @@ function _calcTelaLer() {
   s.observacoes = g('ct-obs');
 }
 
-function _calcTelaInput() { _calcTelaLer(); _calcTelaRenderDash(); }
+function _calcTelaInput() {
+  _calcTelaLer();
+  // m² da membrana (seção LED) espelha a Membrana TechFrame em tempo real
+  const m2el = document.getElementById('ct-led-m2');
+  if (m2el) m2el.value = _calcTela.tela.qtd || '';
+  _calcTelaRenderDash();
+}
 
 function _calcTelaLimpar() {
   _calcTela = _calcTelaNovo();
