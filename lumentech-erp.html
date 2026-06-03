@@ -155,11 +155,11 @@
 
 <!-- ?v=... = cache-busting. Bump a versão (data-seq) a cada mudança de JS pra
      a equipe receber o novo código no F5 normal (sem precisar de Ctrl+Shift+R). -->
-<script src="js/supabase-client.js?v=2026-06-03-2"></script>
-<script src="js/db.js?v=2026-06-03-2"></script>
-<script src="js/repo.js?v=2026-06-03-2"></script>
-<script src="js/auth.js?v=2026-06-03-2"></script>
-<script src="js/permissoes.js?v=2026-06-03-2"></script>
+<script src="js/supabase-client.js?v=2026-06-03-3"></script>
+<script src="js/db.js?v=2026-06-03-3"></script>
+<script src="js/repo.js?v=2026-06-03-3"></script>
+<script src="js/auth.js?v=2026-06-03-3"></script>
+<script src="js/permissoes.js?v=2026-06-03-3"></script>
 <script>
 const ICONS = {
   home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2h-4v-7H9v7H5a2 2 0 01-2-2z"/></svg>',
@@ -209,6 +209,7 @@ const ICONS = {
   signature: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 17s2-4 5-4 5 4 8 4 5-4 5-4M3 21h18"/></svg>',
   whatsapp: '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M17.5 14.4c-.3-.1-1.7-.8-2-.9s-.5-.1-.7.1-.8 1-.9 1.1c-.2.2-.3.2-.6.1-1.3-.6-2.4-1.4-3.3-2.7-.2-.4.2-.4.6-1.2.1-.1 0-.3 0-.4s-.7-1.7-1-2.3c-.3-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1 1-1 2.5s1.1 2.9 1.2 3.1c.2.2 2.1 3.2 5.1 4.5.7.3 1.3.5 1.7.6.7.2 1.4.2 1.9.1.6-.1 1.7-.7 2-1.4.2-.7.2-1.2.2-1.4 0-.1-.3-.2-.6-.3zM12 2C6.5 2 2 6.5 2 12c0 1.8.5 3.5 1.3 5L2 22l5-1.3c1.5.8 3.2 1.3 5 1.3 5.5 0 10-4.5 10-10S17.5 2 12 2z"/></svg>',
   copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>',
+  calculator: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="2" width="16" height="20" rx="1"/><path d="M8 6h8M8 10h0M12 10h0M16 10h0M8 14h0M12 14h0M16 14h0M8 18h0M12 18h0M16 18h0"/></svg>',
   'user-check': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><polyline points="17 11 19 13 23 9"/></svg>',
 };
 
@@ -7088,6 +7089,7 @@ const RENDERERS = {
   parceiros: renderParceiros,
   vendedores: renderVendedores,
   orcamentos: renderOrcamentos,
+  'calc-tela': (...a) => renderCalcTela(...a),
   pedidos: (...a) => window.renderPedidos(...a),
   producao: renderProducao,
   os: renderOSModulo,
@@ -39806,6 +39808,412 @@ window.renderPedidos = renderPedidosNovo;
 // =====================================================
 
 // Estrutura de grupos colapsáveis. Itens fora de grupo permanecem flat.
+// =====================================================================
+// CALCULADORA DE TELA TENSIONADA (módulo Vendas)
+// Precificação: custos de materiais + mão de obra, comissão, margem e
+// preço de venda. Cálculo em tempo real, salvar/duplicar/PDF/Excel.
+// =====================================================================
+let _calcTela = null;        // estado do formulário em edição
+let _calcTelaEditId = null;  // id sendo editado (null = novo orçamento)
+let _calcTelaView = 'calc';  // 'calc' | 'historico'
+
+function _calcTelaNovo() {
+  return {
+    nome: '',
+    tela:     { qtd: 0, custo: 0, venda: 0 },
+    aluminio: { qtd: 0, custo: 0, venda: 0 },
+    pvc:      { qtd: 0, custo: 0, venda: 0 },
+    baguete:  { qtd: 0, custo: 0, venda: 0 },
+    maoObra:  { horasPorM2: 0, valorHora: 0 },
+    comissaoPct: 0,
+    margemDesejadaPct: 30,
+    observacoes: '',
+  };
+}
+
+// Cálculo PURO (sem DOM) — fácil de testar. Segue exatamente a especificação.
+function _calcTelaCompute(s) {
+  const num = v => { const n = Number(v); return isFinite(n) ? n : 0; };
+  const linha = m => { m = m || {}; const q = num(m.qtd); return { qtd: q, custo: q * num(m.custo), venda: q * num(m.venda) }; };
+  const tela = linha(s.tela), alu = linha(s.aluminio), pvc = linha(s.pvc), bag = linha(s.baguete);
+  const area = tela.qtd;                                  // m² de tela
+  const metrosPerfis = alu.qtd + pvc.qtd + bag.qtd;       // metros lineares de perfis
+  const horasTotais = area * num(s.maoObra && s.maoObra.horasPorM2);
+  const custoMaoObra = horasTotais * num(s.maoObra && s.maoObra.valorHora);
+  const custoMateriais = tela.custo + alu.custo + pvc.custo + bag.custo;
+  const custoTotal = custoMateriais + custoMaoObra;
+  const vendaBruta = tela.venda + alu.venda + pvc.venda + bag.venda;
+  const comissaoPct = num(s.comissaoPct);
+  const comissao = vendaBruta * (comissaoPct / 100);
+  const lucroBruto = vendaBruta - custoTotal;
+  const lucroLiquido = vendaBruta - custoTotal - comissao;
+  const margemReal = vendaBruta > 0 ? (lucroLiquido / vendaBruta) * 100 : 0;
+  const margemDesejadaPct = num(s.margemDesejadaPct);
+  // Preço sugerido pra atingir a margem LÍQUIDA desejada, considerando a comissão
+  // proporcional ao preço: P*(1 - c - m) = custo  ->  P = custo / (1 - c - m).
+  const denom = 1 - (comissaoPct / 100) - (margemDesejadaPct / 100);
+  const precoSugerido = (custoTotal > 0 && denom > 0) ? custoTotal / denom : null;
+  return { tela, alu, pvc, bag, area, metrosPerfis, horasTotais, custoMaoObra,
+    custoMateriais, custoTotal, vendaBruta, comissaoPct, comissao,
+    lucroBruto, lucroLiquido, margemReal, margemDesejadaPct, precoSugerido };
+}
+
+// Indicador visual da margem (verde > 30%, âmbar 15–30%, vermelho < 15%).
+function _calcTelaCorMargem(m) {
+  if (m >= 30) return { cor: '#1D9E75', label: 'Saudável' };
+  if (m >= 15) return { cor: '#BA7517', label: 'Atenção' };
+  return { cor: '#B0241F', label: 'Crítica' };
+}
+
+function _calcTelaInjectStyles() {
+  if (document.getElementById('ct-styles')) return;
+  const st = document.createElement('style');
+  st.id = 'ct-styles';
+  st.textContent =
+    '.ct-grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(290px,1fr);gap:16px;align-items:start}' +
+    '.ct-eyebrow{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.15em;color:var(--muted)}' +
+    '.ct-grid #calc-dash{position:sticky;top:12px}' +
+    '.ct-grid input,.ct-grid textarea{font-variant-numeric:tabular-nums}' +
+    '@media(max-width:900px){.ct-grid{grid-template-columns:1fr}.ct-grid #calc-dash{position:static}}';
+  document.head.appendChild(st);
+}
+
+function renderCalcTela(parent) {
+  _calcTelaInjectStyles();
+  if (!_calcTela) _calcTela = _calcTelaNovo();
+  const hist = (DB.calculosTela || []).length;
+  pageHead(parent, 'Calculadora de <em>tela tensionada</em>',
+    'Precificação de projetos — custos, comissão, mão de obra e margem em tempo real');
+
+  const tabs = el('<div style="display:flex;gap:6px;margin-bottom:14px"></div>');
+  const tCalc = el('<button class="btn btn-sm ' + (_calcTelaView === 'calc' ? 'btn-primary' : 'btn-secondary') + '">Calculadora</button>');
+  const tHist = el('<button class="btn btn-sm ' + (_calcTelaView === 'historico' ? 'btn-primary' : 'btn-secondary') + '">Histórico' + (hist ? ' · ' + hist : '') + '</button>');
+  tCalc.onclick = () => { if (_calcTelaView !== 'calc') { _calcTelaView = 'calc'; renderPage('calc-tela'); } };
+  tHist.onclick = () => { if (_calcTelaView !== 'historico') { _calcTelaLer(); _calcTelaView = 'historico'; renderPage('calc-tela'); } };
+  tabs.appendChild(tCalc); tabs.appendChild(tHist);
+  parent.appendChild(tabs);
+
+  const body = el('<div></div>');
+  parent.appendChild(body);
+  if (_calcTelaView === 'historico') _calcTelaRenderHistorico(body);
+  else _calcTelaRenderCalc(body);
+}
+
+function _calcTelaGrupoMaterial(titulo, key, unidade, s) {
+  const m = s[key] || {};
+  return '' +
+   '<div class="card" style="margin-bottom:12px">' +
+     '<div class="card-head"><h3>' + titulo + '</h3><span class="ct-eyebrow">' + unidade + '</span></div>' +
+     '<div class="card-body" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">' +
+       '<div class="field"><label>Quantidade (' + unidade + ')</label><input type="number" min="0" step="0.01" inputmode="decimal" id="ct-' + key + '-qtd" value="' + (m.qtd || '') + '" oninput="_calcTelaInput()"></div>' +
+       '<div class="field"><label>Custo / ' + unidade + ' (R$)</label><input type="number" min="0" step="0.01" inputmode="decimal" id="ct-' + key + '-custo" value="' + (m.custo || '') + '" oninput="_calcTelaInput()"></div>' +
+       '<div class="field"><label>Venda / ' + unidade + ' (R$)</label><input type="number" min="0" step="0.01" inputmode="decimal" id="ct-' + key + '-venda" value="' + (m.venda || '') + '" oninput="_calcTelaInput()"></div>' +
+     '</div>' +
+   '</div>';
+}
+
+function _calcTelaRenderCalc(parent) {
+  const s = _calcTela;
+  const wrap = el('<div class="ct-grid"></div>');
+
+  const form = el('<div></div>');
+  form.innerHTML = '' +
+    '<div class="card" style="margin-bottom:12px"><div class="card-body">' +
+      '<div class="field"><label>Identificação do projeto / cliente</label>' +
+      '<input type="text" id="ct-nome" value="' + escapeHtml(s.nome || '') + '" placeholder="Ex.: Fachada tensionada — Loja Centro" oninput="_calcTelaInput()"></div>' +
+    '</div></div>' +
+    _calcTelaGrupoMaterial('Tela tensionada', 'tela', 'm²', s) +
+    _calcTelaGrupoMaterial('Perfil de alumínio', 'aluminio', 'm', s) +
+    _calcTelaGrupoMaterial('Perfil PVC', 'pvc', 'm', s) +
+    _calcTelaGrupoMaterial('Baguete', 'baguete', 'm', s) +
+    '<div class="card" style="margin-bottom:12px"><div class="card-head"><h3>Mão de obra</h3></div>' +
+      '<div class="card-body" style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">' +
+        '<div class="field"><label>Horas por m²</label><input type="number" min="0" step="0.01" inputmode="decimal" id="ct-mo-horas" value="' + (s.maoObra.horasPorM2 || '') + '" oninput="_calcTelaInput()"></div>' +
+        '<div class="field"><label>Valor da hora do operador (R$)</label><input type="number" min="0" step="0.01" inputmode="decimal" id="ct-mo-valor" value="' + (s.maoObra.valorHora || '') + '" oninput="_calcTelaInput()"></div>' +
+      '</div></div>' +
+    '<div class="card" style="margin-bottom:12px"><div class="card-head"><h3>Comissão &amp; margem</h3></div>' +
+      '<div class="card-body" style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">' +
+        '<div class="field"><label>Comissão (%)</label><input type="number" min="0" step="0.1" inputmode="decimal" id="ct-comissao" value="' + (s.comissaoPct || '') + '" oninput="_calcTelaInput()"></div>' +
+        '<div class="field"><label>Margem desejada (%)</label><input type="number" min="0" step="0.1" inputmode="decimal" id="ct-margem" value="' + (s.margemDesejadaPct || '') + '" oninput="_calcTelaInput()"></div>' +
+      '</div></div>' +
+    '<div class="card"><div class="card-head"><h3>Observações do projeto</h3></div>' +
+      '<div class="card-body"><textarea id="ct-obs" rows="3" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font:inherit;resize:vertical" placeholder="Detalhes técnicos, condições, prazos..." oninput="_calcTelaInput()">' + escapeHtml(s.observacoes || '') + '</textarea></div>' +
+    '</div>';
+
+  const dash = el('<div id="calc-dash"></div>');
+  wrap.appendChild(form);
+  wrap.appendChild(dash);
+  parent.appendChild(wrap);
+  _calcTelaRenderDash();
+}
+
+function _calcLinhaDash(l, v, forte) {
+  return '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0">' +
+    '<span style="font-size:12.5px;color:var(--muted)">' + l + '</span>' +
+    '<span style="font-family:var(--mono,monospace);font-size:' + (forte ? '15px' : '13px') + ';font-weight:' + (forte ? 500 : 400) + ';color:var(--ink)">' + v + '</span></div>';
+}
+
+function _calcTelaRenderDash() {
+  const host = document.getElementById('calc-dash');
+  if (!host) return;
+  const r = _calcTelaCompute(_calcTela);
+  const mc = _calcTelaCorMargem(r.margemReal);
+  const larguraBarra = Math.max(0, Math.min(100, r.margemReal));
+  host.innerHTML = '' +
+    '<div class="card"><div class="card-head"><h3>Resultado</h3>' +
+      '<span style="font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.15em;color:' + mc.cor + '">' + mc.label + '</span></div>' +
+    '<div class="card-body">' +
+      '<div style="text-align:center;padding:14px;border:1px solid var(--border);border-radius:8px;margin-bottom:14px">' +
+        '<div class="ct-eyebrow">Margem real</div>' +
+        '<div style="font-family:var(--serif);font-size:40px;line-height:1.05;color:' + mc.cor + '">' + fmt(r.margemReal) + '<span style="font-size:18px">%</span></div>' +
+        '<div style="height:6px;background:var(--surface-2);border-radius:4px;margin-top:10px;overflow:hidden">' +
+          '<div style="height:100%;width:' + larguraBarra + '%;background:' + mc.cor + ';transition:width .25s ease"></div></div>' +
+        (r.margemDesejadaPct ? '<div class="ct-eyebrow" style="margin-top:8px">Meta: ' + fmt(r.margemDesejadaPct) + '%</div>' : '') +
+      '</div>' +
+      _calcLinhaDash('Área total', fmt(r.area) + ' m²') +
+      _calcLinhaDash('Metros de perfis', fmt(r.metrosPerfis) + ' m') +
+      _calcLinhaDash('Horas necessárias', fmt(r.horasTotais) + ' h') +
+      '<hr style="border:0;border-top:1px solid var(--border);margin:10px 0">' +
+      _calcLinhaDash('Custo dos materiais', brl(r.custoMateriais)) +
+      _calcLinhaDash('Custo de mão de obra', brl(r.custoMaoObra)) +
+      _calcLinhaDash('Custo total', brl(r.custoTotal), true) +
+      '<hr style="border:0;border-top:1px solid var(--border);margin:10px 0">' +
+      _calcLinhaDash('Valor de venda', brl(r.vendaBruta), true) +
+      _calcLinhaDash('Comissão (' + fmt(r.comissaoPct) + '%)', '− ' + brl(r.comissao)) +
+      _calcLinhaDash('Lucro bruto', brl(r.lucroBruto)) +
+      _calcLinhaDash('Lucro líquido', brl(r.lucroLiquido), true) +
+      (r.precoSugerido != null ? _calcLinhaDash('Preço sugerido p/ ' + fmt(r.margemDesejadaPct) + '%', brl(r.precoSugerido)) : '') +
+    '</div>' +
+    '<div class="card-body" style="border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:8px">' +
+      '<button class="btn btn-primary btn-sm" onclick="salvarCalcTela()">' + ICONS.check + ' ' + (_calcTelaEditId ? 'Atualizar' : 'Salvar') + ' orçamento</button>' +
+      '<button class="btn btn-secondary btn-sm" onclick="gerarPDFCalcTela()">' + ICONS['file-text'] + ' PDF</button>' +
+      '<button class="btn btn-secondary btn-sm" onclick="exportarCSVCalcTela()">' + ICONS.download + ' Excel</button>' +
+      (_calcTelaEditId ? '<button class="btn btn-secondary btn-sm" onclick="_calcTelaLimpar()">Novo</button>' : '') +
+    '</div></div>';
+}
+
+function _calcTelaLer() {
+  const g = id => { const e = document.getElementById(id); return e ? e.value : ''; };
+  const nf = id => { const n = Number(g(id)); return isFinite(n) ? n : 0; };
+  const s = _calcTela || (_calcTela = _calcTelaNovo());
+  s.nome = g('ct-nome');
+  s.tela     = { qtd: nf('ct-tela-qtd'),     custo: nf('ct-tela-custo'),     venda: nf('ct-tela-venda') };
+  s.aluminio = { qtd: nf('ct-aluminio-qtd'), custo: nf('ct-aluminio-custo'), venda: nf('ct-aluminio-venda') };
+  s.pvc      = { qtd: nf('ct-pvc-qtd'),      custo: nf('ct-pvc-custo'),      venda: nf('ct-pvc-venda') };
+  s.baguete  = { qtd: nf('ct-baguete-qtd'),  custo: nf('ct-baguete-custo'),  venda: nf('ct-baguete-venda') };
+  s.maoObra  = { horasPorM2: nf('ct-mo-horas'), valorHora: nf('ct-mo-valor') };
+  s.comissaoPct = nf('ct-comissao');
+  s.margemDesejadaPct = nf('ct-margem');
+  s.observacoes = g('ct-obs');
+}
+
+function _calcTelaInput() { _calcTelaLer(); _calcTelaRenderDash(); }
+
+function _calcTelaLimpar() {
+  _calcTela = _calcTelaNovo();
+  _calcTelaEditId = null;
+  _calcTelaView = 'calc';
+  renderPage('calc-tela');
+}
+
+function salvarCalcTela() {
+  if (typeof exigeAcesso === 'function' && !exigeAcesso('orcamentos', _calcTelaEditId ? 'editar' : 'criar')) return;
+  _calcTelaLer();
+  const s = _calcTela;
+  if (!s.nome || !s.nome.trim()) { toast('Dê um nome ou identificação pro orçamento', 'danger'); const e = document.getElementById('ct-nome'); if (e) e.focus(); return; }
+  const r = _calcTelaCompute(s);
+  const registro = JSON.parse(JSON.stringify(s));
+  registro.resultado = {
+    area: r.area, metrosPerfis: r.metrosPerfis, horasTotais: r.horasTotais,
+    custoMateriais: r.custoMateriais, custoMaoObra: r.custoMaoObra, custoTotal: r.custoTotal,
+    vendaBruta: r.vendaBruta, comissao: r.comissao, lucroBruto: r.lucroBruto,
+    lucroLiquido: r.lucroLiquido, margemReal: r.margemReal,
+  };
+  registro.atualizadoEm = new Date().toISOString();
+  if (_calcTelaEditId) {
+    const idx = DB.calculosTela.findIndex(x => x.id === _calcTelaEditId);
+    if (idx >= 0) { registro.id = _calcTelaEditId; registro.criadoEm = DB.calculosTela[idx].criadoEm; DB.calculosTela[idx] = registro; }
+    else { registro.id = _calcTelaEditId; registro.criadoEm = new Date().toISOString(); DB.calculosTela.push(registro); }
+  } else {
+    registro.id = nextId('calc', 'CALC');
+    registro.criadoEm = new Date().toISOString();
+    registro.criadoPor = (window.CURRENT_USER && (window.CURRENT_USER.nome || window.CURRENT_USER.email)) || '';
+    DB.calculosTela.push(registro);
+    _calcTelaEditId = registro.id;
+  }
+  const ok = saveDB();
+  if (ok === false) return; // armazenamento cheio — saveDB já avisou
+  toast('Orçamento salvo');
+  _calcTelaRenderDash();
+}
+
+function abrirCalcTela(id) {
+  const o = DB.calculosTela.find(x => x.id === id);
+  if (!o) { toast('Orçamento não encontrado', 'danger'); return; }
+  _calcTela = _calcTelaNovo();
+  _calcTela.nome = o.nome || '';
+  _calcTela.tela = Object.assign({ qtd: 0, custo: 0, venda: 0 }, o.tela || {});
+  _calcTela.aluminio = Object.assign({ qtd: 0, custo: 0, venda: 0 }, o.aluminio || {});
+  _calcTela.pvc = Object.assign({ qtd: 0, custo: 0, venda: 0 }, o.pvc || {});
+  _calcTela.baguete = Object.assign({ qtd: 0, custo: 0, venda: 0 }, o.baguete || {});
+  _calcTela.maoObra = Object.assign({ horasPorM2: 0, valorHora: 0 }, o.maoObra || {});
+  _calcTela.comissaoPct = Number(o.comissaoPct) || 0;
+  _calcTela.margemDesejadaPct = Number(o.margemDesejadaPct) || 0;
+  _calcTela.observacoes = o.observacoes || '';
+  _calcTelaEditId = id;
+  _calcTelaView = 'calc';
+  renderPage('calc-tela');
+}
+
+function duplicarCalcTela(id) {
+  abrirCalcTela(id);
+  _calcTela.nome = (_calcTela.nome || 'Orçamento') + ' (cópia)';
+  _calcTelaEditId = null; // duplicado é um novo orçamento
+  _calcTelaView = 'calc';
+  renderPage('calc-tela');
+  toast('Orçamento duplicado — ajuste e salve');
+}
+
+function excluirCalcTela(id) {
+  if (typeof exigeAcesso === 'function' && !exigeAcesso('orcamentos', 'excluir')) return;
+  if (!confirm('Excluir este orçamento da calculadora?')) return;
+  DB.calculosTela = (DB.calculosTela || []).filter(x => x.id !== id);
+  if (_calcTelaEditId === id) { _calcTelaEditId = null; _calcTela = _calcTelaNovo(); }
+  saveDB();
+  toast('Orçamento excluído');
+  renderPage('calc-tela');
+}
+
+function _calcTelaRenderHistorico(parent) {
+  const lista = (DB.calculosTela || []).slice().sort((a, b) => String(b.criadoEm || '').localeCompare(String(a.criadoEm || '')));
+  if (lista.length === 0) {
+    const card = el('<div class="card"></div>');
+    card.appendChild(emptyState('calculator', 'Nenhum orçamento salvo', 'Faça um cálculo e salve pra ver o histórico aqui.', 'Nova calculadora', () => { _calcTelaView = 'calc'; renderPage('calc-tela'); }));
+    parent.appendChild(card);
+    return;
+  }
+  const th = (txt, alin) => '<th style="text-align:' + (alin || 'left') + ';padding:8px;font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:500">' + txt + '</th>';
+  const dataBR = iso => { if (!iso) return '—'; const d = String(iso).slice(0, 10); return (typeof isoToBR === 'function') ? isoToBR(d) : d; };
+  const rows = lista.map(o => {
+    const r = _calcTelaCompute(o);
+    const mc = _calcTelaCorMargem(r.margemReal);
+    return '<tr style="border-bottom:1px solid var(--border)">' +
+      '<td style="padding:10px 8px;font-family:var(--mono,monospace);font-size:12px">' + escapeHtml(String(o.id)) + '</td>' +
+      '<td style="padding:10px 8px">' + escapeHtml(o.nome || '—') + '</td>' +
+      '<td style="padding:10px 8px;text-align:right">' + fmt(r.area) + ' m²</td>' +
+      '<td style="padding:10px 8px;text-align:right">' + brl(r.vendaBruta) + '</td>' +
+      '<td style="padding:10px 8px;text-align:right"><span style="color:' + mc.cor + ';font-weight:500">' + fmt(r.margemReal) + '%</span></td>' +
+      '<td style="padding:10px 8px;font-size:12px;color:var(--muted)">' + dataBR(o.criadoEm) + '</td>' +
+      '<td style="padding:10px 8px;text-align:right;white-space:nowrap">' +
+        '<button class="row-action-btn" title="Abrir" onclick="abrirCalcTela(\'' + o.id + '\')">' + ICONS.edit + '</button> ' +
+        '<button class="row-action-btn" title="Duplicar" onclick="duplicarCalcTela(\'' + o.id + '\')">' + ICONS.copy + '</button> ' +
+        '<button class="row-action-btn" title="PDF" onclick="gerarPDFCalcTela(\'' + o.id + '\')">' + ICONS['file-text'] + '</button> ' +
+        '<button class="row-action-btn danger" title="Excluir" onclick="excluirCalcTela(\'' + o.id + '\')">' + ICONS.trash + '</button>' +
+      '</td></tr>';
+  }).join('');
+  const card = el('<div class="card"><div class="card-body" style="overflow-x:auto">' +
+    '<table style="width:100%;border-collapse:collapse;min-width:640px">' +
+      '<thead><tr style="border-bottom:1px solid var(--border)">' +
+        th('Nº') + th('Projeto / cliente') + th('Área', 'right') + th('Venda', 'right') + th('Margem', 'right') + th('Data') + '<th></th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div></div>');
+  parent.appendChild(card);
+}
+
+function exportarCSVCalcTela() {
+  let s;
+  if (typeof arguments[0] === 'string') { s = (DB.calculosTela || []).find(x => x.id === arguments[0]); }
+  if (!s) { _calcTelaLer(); s = _calcTela; }
+  const r = _calcTelaCompute(s);
+  const sep = ';';
+  const cn = n => (Number(n) || 0).toFixed(2).replace('.', ',');   // decimal pt-BR p/ Excel
+  const txt = v => { v = String(v == null ? '' : v); return /[;\n"]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+  const L = [];
+  L.push(txt('Calculadora de tela tensionada — Lumentech'));
+  L.push([txt('Projeto'), txt(s.nome || '')].join(sep));
+  L.push('');
+  L.push(['Item', 'Quantidade', 'Custo unit (R$)', 'Custo total (R$)', 'Venda unit (R$)', 'Venda total (R$)'].map(txt).join(sep));
+  const item = (nome, m, u) => { m = m || {}; const q = Number(m.qtd) || 0; L.push([txt(nome + ' (' + u + ')'), cn(q), cn(m.custo), cn(q * (Number(m.custo) || 0)), cn(m.venda), cn(q * (Number(m.venda) || 0))].join(sep)); };
+  item('Tela tensionada', s.tela, 'm²');
+  item('Perfil de alumínio', s.aluminio, 'm');
+  item('Perfil PVC', s.pvc, 'm');
+  item('Baguete', s.baguete, 'm');
+  L.push('');
+  const kv = (k, v) => L.push([txt(k), v].join(sep));
+  kv('Área total (m²)', cn(r.area));
+  kv('Metros de perfis (m)', cn(r.metrosPerfis));
+  kv('Horas necessárias', cn(r.horasTotais));
+  kv('Custo dos materiais (R$)', cn(r.custoMateriais));
+  kv('Custo de mão de obra (R$)', cn(r.custoMaoObra));
+  kv('Custo total (R$)', cn(r.custoTotal));
+  kv('Valor de venda (R$)', cn(r.vendaBruta));
+  kv('Comissão (R$)', cn(r.comissao));
+  kv('Lucro bruto (R$)', cn(r.lucroBruto));
+  kv('Lucro líquido (R$)', cn(r.lucroLiquido));
+  kv('Margem real (%)', cn(r.margemReal));
+  if (s.observacoes) { L.push(''); kv('Observações', txt(s.observacoes)); }
+  const blob = new Blob(['﻿' + L.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'calculo-tela-' + ((s.nome || 'sem-nome').replace(/[^\w\-]+/g, '_').toLowerCase()) + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast('Planilha exportada');
+}
+
+function gerarPDFCalcTela(id) {
+  let s;
+  if (typeof id === 'string' && id) { s = (DB.calculosTela || []).find(x => x.id === id); if (!s) { toast('Orçamento não encontrado', 'danger'); return; } }
+  else { _calcTelaLer(); s = _calcTela; }
+  const r = _calcTelaCompute(s);
+  const mc = _calcTelaCorMargem(r.margemReal);
+  const dataStr = (typeof todayBR === 'function') ? todayBR() : new Date().toLocaleDateString('pt-BR');
+  const itens = [['Tela tensionada', s.tela, 'm²'], ['Perfil de alumínio', s.aluminio, 'm'], ['Perfil PVC', s.pvc, 'm'], ['Baguete', s.baguete, 'm']]
+    .filter(it => (Number(it[1] && it[1].qtd) || 0) > 0);
+  const linhasItens = itens.map(it => {
+    const nome = it[0], m = it[1], u = it[2], q = Number(m.qtd) || 0;
+    return '<tr><td>' + nome + '</td><td class="r">' + fmt(q) + ' ' + u + '</td><td class="r">' + brl(m.custo) + '</td><td class="r">' + brl(q * (Number(m.custo) || 0)) + '</td><td class="r">' + brl(m.venda) + '</td><td class="r">' + brl(q * (Number(m.venda) || 0)) + '</td></tr>';
+  }).join('');
+  const html = '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">' +
+    '<title>Orçamento — ' + escapeHtml(s.nome || 'Tela tensionada') + '</title>' +
+    '<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@200;300;400;500&display=swap" rel="stylesheet">' +
+    '<style>*{box-sizing:border-box}body{font-family:\'Unbounded\',system-ui,sans-serif;color:#0F172A;margin:0;padding:32px;font-weight:400;font-size:12px}' +
+    '.wm{font-weight:500;letter-spacing:.14em;font-size:16px}.eyebrow{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.2em;color:#64748B}' +
+    'h1{font-weight:200;letter-spacing:-.02em;font-size:24px;margin:4px 0 0}table{width:100%;border-collapse:collapse;margin-top:10px}' +
+    'th{font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:#64748B;font-weight:500;text-align:left;border-bottom:1px solid #0F172A;padding:6px 4px}' +
+    'td{padding:6px 4px;border-bottom:1px solid #E5E7EB;font-weight:300}td.r,th.r{text-align:right}' +
+    '.tot{display:flex;justify-content:space-between;padding:4px 0;font-weight:300}.tot.b{font-weight:500;border-top:1px solid #0F172A;margin-top:4px;padding-top:8px}' +
+    '.grid2{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:20px}.margem{text-align:center;border:1px solid #E5E7EB;border-radius:8px;padding:14px}' +
+    '.margem .v{font-weight:200;font-size:34px;color:' + mc.cor + ';letter-spacing:-.02em}.obs{margin-top:18px;border-top:1px solid #E5E7EB;padding-top:10px;font-weight:300;white-space:pre-wrap}' +
+    '.foot{margin-top:28px;border-top:1px solid #E5E7EB;padding-top:10px;color:#64748B;font-size:10px;display:flex;justify-content:space-between}.tag{font-weight:300;color:#94a3b8}@media print{body{padding:0}}</style></head><body>' +
+    '<div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:1px solid #0F172A;padding-bottom:10px">' +
+      '<div><div class="eyebrow">Orçamento · Tela tensionada</div><h1>' + escapeHtml(s.nome || 'Sem identificação') + '</h1></div>' +
+      '<div style="text-align:right"><div class="wm">LUMENTECH<sup style="font-size:.5em;vertical-align:top">®</sup></div><div class="eyebrow" style="margin-top:4px">' + dataStr + '</div></div>' +
+    '</div>' +
+    '<table><thead><tr><th>Item</th><th class="r">Qtd</th><th class="r">Custo unit.</th><th class="r">Custo total</th><th class="r">Venda unit.</th><th class="r">Venda total</th></tr></thead><tbody>' +
+      (linhasItens || '<tr><td colspan="6" style="color:#64748B;padding:12px">Nenhum item informado</td></tr>') + '</tbody></table>' +
+    '<div class="grid2">' +
+      '<div><div class="eyebrow" style="margin-bottom:6px">Custos</div>' +
+        '<div class="tot"><span>Materiais</span><span>' + brl(r.custoMateriais) + '</span></div>' +
+        '<div class="tot"><span>Mão de obra (' + fmt(r.horasTotais) + ' h)</span><span>' + brl(r.custoMaoObra) + '</span></div>' +
+        '<div class="tot b"><span>Custo total</span><span>' + brl(r.custoTotal) + '</span></div></div>' +
+      '<div><div class="eyebrow" style="margin-bottom:6px">Venda &amp; resultado</div>' +
+        '<div class="tot"><span>Valor de venda</span><span>' + brl(r.vendaBruta) + '</span></div>' +
+        '<div class="tot"><span>Comissão (' + fmt(r.comissaoPct) + '%)</span><span>− ' + brl(r.comissao) + '</span></div>' +
+        '<div class="tot"><span>Lucro bruto</span><span>' + brl(r.lucroBruto) + '</span></div>' +
+        '<div class="tot b"><span>Lucro líquido</span><span>' + brl(r.lucroLiquido) + '</span></div></div>' +
+    '</div>' +
+    '<div class="grid2"><div class="margem"><div class="eyebrow">Margem real</div><div class="v">' + fmt(r.margemReal) + '%</div></div>' +
+      '<div class="margem"><div class="eyebrow">Área · perfis · horas</div><div style="font-weight:300;font-size:15px;margin-top:10px">' + fmt(r.area) + ' m² · ' + fmt(r.metrosPerfis) + ' m · ' + fmt(r.horasTotais) + ' h</div></div></div>' +
+    (s.observacoes && s.observacoes.trim() ? '<div class="obs"><div class="eyebrow" style="margin-bottom:4px">Observações</div>' + escapeHtml(s.observacoes) + '</div>' : '') +
+    '<div class="foot"><span>Lumentech® · documento gerado pelo ERP</span><span class="tag">do seu jeito.</span></div>' +
+    '<scr' + 'ipt>window.addEventListener("load",function(){setTimeout(function(){window.print();},400);});</scr' + 'ipt>' +
+    '</body></html>';
+  const w = window.open('', '_blank');
+  if (!w) { toast('Permita pop-ups pra gerar o PDF', 'danger'); return; }
+  w.document.write(html); w.document.close();
+}
+
 const MENU_GRUPOS = [
   // Itens flat antes dos grupos
   { tipo: 'item', id: 'inicio',    label: 'Início',    icon: 'home' },
@@ -39816,6 +40224,7 @@ const MENU_GRUPOS = [
     { id: 'crm',           label: 'CRM',                      icon: 'crm' },
     { id: 'metas',         label: 'Metas Comerciais',         icon: 'award' },
     { id: 'orcamentos',    label: 'Orçamentos',               icon: 'file-text' },
+    { id: 'calc-tela',     label: 'Calculadora de tela',      icon: 'calculator' },
     { id: 'pedidos',       label: 'Pedidos',                  icon: 'shopping-bag' },
     { id: 'trocas',        label: 'Trocas',                   icon: 'rotate' },
     { id: 'devolucoes',    label: 'Devoluções',               icon: 'rotate' },

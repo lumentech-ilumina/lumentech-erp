@@ -26,6 +26,8 @@ function loadDB() {
     if (!merged.configOS) merged.configOS = { precoCombustivel: 5.89, tiposServico: ['Medição','Instalação','Assistência técnica','Vistoria','Pós-venda','Manutenção preventiva','Projeto técnico'] };
     // Vendedores
     if (!Array.isArray(merged.vendedores)) merged.vendedores = [];
+    // Calculadora de tela tensionada
+    if (!Array.isArray(merged.calculosTela)) merged.calculosTela = [];
     // Usuários
     if (!Array.isArray(merged.usuarios) || merged.usuarios.length === 0) merged.usuarios = defaultUsuarios();
     if (!Array.isArray(merged.perfisAcesso) || merged.perfisAcesso.length === 0) merged.perfisAcesso = defaultPerfisAcesso();
@@ -151,6 +153,8 @@ function defaultDB() {
     parceiros: [],    // Parceiros comerciais (arquitetos, engenheiros, etc) com comissão
     interacoes: [],   // Timeline de interações: {id, clienteId, tipo, data, descricao, usuario}
     orcamentos: [], pedidos: [], ops: [], osServicos: [],
+    calculosTela: [],  // Calculadora de tela tensionada (Vendas): orçamentos/precificações salvos
+
     estoque: [], contasPagar: [], contasReceber: [], notas: [],
     // Trocas e Devoluções
     trocas: [],            // {id, pedidoId, clienteId, tipo:'garantia'|'comercial', motivo, itensOriginais:[], itensNovos:[], diferenca, formaPagamentoDif, status, requerAprovFinanc, criadoEm, criadoPor, aprovadoEm, aprovadoPor, recebidoEm, recebidoPor, orcamentoGeradoId, pedidoGeradoId, historico:[]}
@@ -223,7 +227,7 @@ function defaultDB() {
     followUp: [],                                   // [{id, ordemCompraId, ordemCompraNumero, fornecedor, statusAtual, dataPrevista, observacao, contatoEm, contatoPor, criadoEm}]
     // Ambientes padrão (orçamentos do tipo Projeto)
     ambientesPadrao: [],                            // [{id, nome, ordem}]
-    counters: { cli:1, orc:1, ped:1, op:1, os:1, exp:1, sku:1, cp:1, cr:1, nfs:1, prod:1, mov:1, lote:1, dep:1, end:1, pc:1, inv:1, tr:1, par:1, int:1, opp:1, task:1, auto:1, cat:1, marca:1, fab:1, forn:1, usu:1, perf:1, log:1, veic:1, med:1, vend:1, pat:1, imp:1, fup:1, mot:1, rot:1 },
+    counters: { cli:1, orc:1, ped:1, op:1, os:1, exp:1, sku:1, cp:1, cr:1, nfs:1, prod:1, mov:1, lote:1, dep:1, end:1, pc:1, inv:1, tr:1, par:1, int:1, opp:1, task:1, auto:1, cat:1, marca:1, fab:1, forn:1, usu:1, perf:1, log:1, veic:1, med:1, vend:1, pat:1, imp:1, fup:1, mot:1, rot:1, calc:1 },
   };
 }
 
@@ -648,7 +652,7 @@ const _COUNTER_COLECAO = {
   fup:  ['followUp','id'],        nfs:  ['notas','id'],
   opp:  ['oportunidades','id'],   task: ['tarefasCrm','id'],
   auto: ['automacoes','id'],      troca:['trocas','id'],
-  dev:  ['devolucoes','id'],
+  dev:  ['devolucoes','id'],      calc: ['calculosTela','id'],
 };
 function _maxNumeroEmUso(key) {
   const m = _COUNTER_COLECAO[key];

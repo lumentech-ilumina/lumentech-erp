@@ -193,6 +193,8 @@ const repo = (() => {
     { table: 'tabelas_preco',       key: 'tabelasPreco' },
     // Fase 4 — Vendas
     'orcamentos', 'pedidos',
+    { table: 'calculos_tela', key: 'calculosTela' }, // Calculadora de tela tensionada
+
     // Fase 5 — Estoque
     'estoque', 'movimentacoes', 'lotes', 'depositos', 'enderecos',
     { table: 'pedidos_compra', key: 'pedidosCompra' },
