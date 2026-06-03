@@ -12071,6 +12071,7 @@ function renderOrcamentoPage() {
     const isUsoCredito = p.forma === 'Uso de Crédito';
     const isBrinde = p.forma === 'Brinde';
     const isInterno = p.forma === 'Uso Interno';
+    const isFuturo = p.forma === 'Pagamento futuro';   // saldo a cobrar numa data futura (gera título em aberto)
     const isEspecial = isUsoCredito || isBrinde || isInterno;
     const parcelavel = isCartao || isBoleto || isCred;
 
@@ -12086,6 +12087,7 @@ function renderOrcamentoPage() {
       'Uso de Crédito':         '◉',
       'Brinde':                 '🎁',
       'Uso Interno':            '◐',
+      'Pagamento futuro':       '◷',
     };
     const icone = iconeMap[p.forma] || '○';
 
@@ -12108,12 +12110,15 @@ function renderOrcamentoPage() {
       if (p.destino) detalhes = `<span class="pag-list-detail">${escapeHtml(p.destino)}</span>`;
       badges = '<span class="pag-list-badge pag-list-badge-interno">não conta no financeiro</span>';
     }
+    if (isFuturo) {
+      badges = '<span class="pag-list-badge pag-list-badge-credito">saldo · cobrança futura</span>';
+    }
 
     // Mostra botão "detalhes" (modal) só quando há campos extras pra configurar
     const precisaConfigExtra = isCartao || isUsoCredito || isBrinde || isInterno;
 
     const formasTradicionais = ['Pix','Dinheiro','Boleto','Cartão de Crédito','Cartão de Débito','Transferência Bancária','Crediário'];
-    const formasEspeciais = ['Uso de Crédito','Brinde','Uso Interno'];
+    const formasEspeciais = ['Uso de Crédito','Brinde','Uso Interno','Pagamento futuro'];
 
     return `
       <div class="pag-list-row ${isEspecial?'pag-list-row-especial':''}" data-idx="${idx}">
@@ -12129,6 +12134,10 @@ function renderOrcamentoPage() {
               </optgroup>
             </select>
             ${detalhes || badges ? `<div style="margin-top:3px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">${detalhes}${badges}</div>` : ''}
+            ${isFuturo ? `<div style="margin-top:5px;display:flex;align-items:center;gap:6px">
+              <span style="font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:500">Cobrança</span>
+              <input type="date" class="fp-input pag-list-datacobr-input" data-idx="${idx}" value="${p.dataCobranca||''}" style="font-size:12px;padding:4px 8px;min-height:30px;width:auto" title="Data de cobrança do saldo futuro">
+            </div>` : ''}
           </div>
         </div>
         <div style="width:140px">
@@ -12137,6 +12146,7 @@ function renderOrcamentoPage() {
         <div style="width:90px;display:flex;justify-content:center">
           ${parcelavel
             ? `<input type="number" min="1" max="36" step="1" class="fp-input pag-list-parc-input" data-idx="${idx}" value="${p.parcelas||1}" style="width:60px;text-align:center;font-family:var(--mono);font-size:12.5px;padding:6px 8px;min-height:32px">`
+            : isFuturo ? '<span class="pag-list-parc-na">futuro</span>'
             : isEspecial ? '<span class="pag-list-parc-na">—</span>' : '<span class="pag-list-parc-na">à vista</span>'
           }
         </div>
@@ -12164,6 +12174,7 @@ function renderOrcamentoPage() {
     const formaSel  = row.querySelector('.pag-list-forma-select');
     const valorInp  = row.querySelector('.pag-list-valor-input');
     const parcInp   = row.querySelector('.pag-list-parc-input');
+    const dataCobrInp = row.querySelector('.pag-list-datacobr-input');
 
     // Edição inline da forma — re-render pra atualizar parcelas/ícone/badges
     if (formaSel) formaSel.onchange = (e) => {
@@ -12173,8 +12184,15 @@ function renderOrcamentoPage() {
       const isCartao  = formaSel.value === 'Cartão de Crédito' || formaSel.value === 'Cartão de Débito';
       const isParc    = isCartao || formaSel.value === 'Boleto' || formaSel.value === 'Crediário';
       if (!isParc) _orcPagamentos[idx].parcelas = 1;
+      // Pagamento futuro: já sugere uma data de cobrança (+30 dias) se ainda não tem
+      if (formaSel.value === 'Pagamento futuro' && !_orcPagamentos[idx].dataCobranca) {
+        const d = new Date(); d.setDate(d.getDate() + 30);
+        _orcPagamentos[idx].dataCobranca = d.toISOString().slice(0, 10);
+      }
       renderPagLista();
     };
+    // Data de cobrança do saldo futuro
+    if (dataCobrInp) dataCobrInp.onchange = (e) => { e.stopPropagation(); _orcPagamentos[idx].dataCobranca = dataCobrInp.value; };
     // Edição inline do valor (debounced) — sempre arredonda pra 2 decimais
     if (valorInp) {
       let _vt;
@@ -12540,7 +12558,7 @@ function renderOrcamentoPage() {
     if (!p) return;
 
     const formasTradicionais = ['Pix','Dinheiro','Boleto','Cartão de Crédito','Cartão de Débito','Transferência Bancária','Crediário'];
-    const formasEspeciais = ['Uso de Crédito','Brinde','Uso Interno'];
+    const formasEspeciais = ['Uso de Crédito','Brinde','Uso Interno','Pagamento futuro'];
     const isCartao = (forma) => forma === 'Cartão de Crédito' || forma === 'Cartão de Débito';
     const isPix    = (forma) => forma === 'Pix';
     const isParc   = (forma) => isCartao(forma) || forma === 'Boleto' || forma === 'Crediário';
@@ -15931,6 +15949,10 @@ function gerarPDFDocumento(o, opts) {
             if (p.destino) partes.push(escapeHtml(p.destino));
             partes.push('uso interno');
             detalhe = partes.join(' · ');
+          } else if (p.forma === 'Pagamento futuro') {
+            detalhe = p.dataCobranca
+              ? `Saldo · cobrança em ${typeof isoToBR === 'function' ? isoToBR(p.dataCobranca) : p.dataCobranca}`
+              : 'Saldo a cobrar futuramente';
           }
 
           return `
@@ -29268,17 +29290,22 @@ function lancarFinanceiroPedido(pedido, orcamento) {
           lancadas++;
         }
       } else {
-        // Forma à vista (Pix, Dinheiro, Transferência, ou parcelável com 1×)
+        // Forma à vista (Pix, Dinheiro, Transferência) OU "Pagamento futuro" (saldo a cobrar numa data).
+        // No pagamento futuro o vencimento é a DATA DE COBRANÇA escolhida no orçamento e o título
+        // fica em aberto (pagamentoFuturo:true) — a entrada (outra forma) é uma linha separada.
+        const isFuturo = formaPg === 'Pagamento futuro';
+        const vencFuturo = (isFuturo && pg.dataCobranca) ? pg.dataCobranca : null;
         DB.contasReceber.push({
           id: nextId('cr', 'CR'),
           cliente: pedido.cliente,
-          descricao: `Pedido ${pedido.id} · ${formaPg}`,
+          descricao: isFuturo ? `Pedido ${pedido.id} · Pagamento futuro (saldo)` : `Pedido ${pedido.id} · ${formaPg}`,
           valor: valorPg,
-          vencimento: _vencDeParcela(0),
+          vencimento: vencFuturo || _vencDeParcela(0),
           status: 'A receber',
           pedidoId: pedido.id,
           formaPagamento: formaPg,
           pagamentoIdx: idxPg,
+          pagamentoFuturo: isFuturo || undefined,
           criadoEm: agora,
         });
         lancadas++;
@@ -30446,6 +30473,22 @@ function aprovarFinanceiroPedido(id) {
     formasDisponiveis.unshift(formaPedido);
   }
 
+  // Pagamento futuro: separa o que é entrada (confirmar agora) do saldo a cobrar depois.
+  const titulosPedido = (DB.contasReceber || []).filter(cr => cr.pedidoId === p.id && cr.status !== 'Cancelada' && cr.status !== 'Recebida');
+  const titulosFuturo = titulosPedido.filter(cr => cr.pagamentoFuturo);
+  const temFuturo = titulosFuturo.length > 0;
+  const entradaTotal = titulosPedido.filter(cr => !cr.pagamentoFuturo).reduce((s, cr) => s + Number(cr.valor || 0), 0);
+  const saldoFuturoTotal = titulosFuturo.reduce((s, cr) => s + Number(cr.valor || 0), 0);
+  const dataCobr = temFuturo ? (titulosFuturo[0].vencimento || '') : '';
+  const dataCobrBR = dataCobr ? (typeof isoToBR === 'function' ? isoToBR(dataCobr) : dataCobr) : '—';
+  const boxFuturo = temFuturo ? `
+    <div style="padding:10px 12px;background:#1E4F8F0D;border:1px solid #1E4F8F33;border-radius:8px;font-size:12px;line-height:1.55">
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500;margin-bottom:6px">Pagamento futuro</div>
+      <div style="display:flex;justify-content:space-between;padding:2px 0"><span>Entrada (confirmar agora)</span><strong style="font-family:var(--mono)">${brl(entradaTotal)}</strong></div>
+      <div style="display:flex;justify-content:space-between;padding:2px 0"><span>Saldo · cobrança ${dataCobrBR}</span><strong style="font-family:var(--mono)">${brl(saldoFuturoTotal)}</strong></div>
+      <div style="margin-top:6px;color:var(--muted)">Ao aprovar você confirma o recebimento da entrada e libera a separação. O saldo fica em aberto pra cobrança na data acima.</div>
+    </div>` : '';
+
   const m = openModal({
     title: `Aprovar financeiro · ${p.id}`,
     size: 'md',
@@ -30461,6 +30504,8 @@ function aprovarFinanceiroPedido(id) {
             <div style="font-family:var(--mono);font-weight:500;margin-top:2px;font-size:14px">${brl(p.valor||0)}</div>
           </div>
         </div>
+
+        ${boxFuturo}
 
         <div>
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500;display:block;margin-bottom:4px">Forma de pagamento do pedido</label>
@@ -30536,7 +30581,8 @@ function aprovarFinanceiroPedido(id) {
     // Atualiza contas a receber abertas com a nova forma e a observação
     let crAtualizadas = 0;
     (DB.contasReceber||[]).forEach(cr => {
-      if (cr.pedidoId === p.id && cr.status !== 'Recebida' && cr.status !== 'Cancelada') {
+      // NÃO mexe no título de "Pagamento futuro" — ele mantém a forma e a data de cobrança próprias.
+      if (cr.pedidoId === p.id && cr.status !== 'Recebida' && cr.status !== 'Cancelada' && !cr.pagamentoFuturo) {
         cr.formaPagamento = formaEscolhida;
         if (diferente) {
           cr.observacao = (cr.observacao ? cr.observacao + ' · ' : '') + `Forma alterada: ${formaPedido} → ${formaEscolhida} · ${obs}`;
@@ -43738,7 +43784,7 @@ function renderFormContaPagar(id) {
               <label>Forma de pagamento</label>
               <select id="cpf-forma">
                 <option value="">—</option>
-                ${['Dinheiro','PIX','Transferência','Boleto','Cartão de débito','Cartão de crédito','Cheque','Débito automático','Outros'].map(f => `<option ${editing?.formaPagamento === f ? 'selected' : ''}>${f}</option>`).join('')}
+                ${['Dinheiro','PIX','Transferência','Boleto','Cartão de débito','Cartão de crédito','Cheque','Débito automático','Pagamento futuro','Outros'].map(f => `<option ${editing?.formaPagamento === f ? 'selected' : ''}>${f}</option>`).join('')}
               </select>
             </div>
             <div class="fp-field">
