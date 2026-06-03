@@ -40022,19 +40022,61 @@ function _calcTelaRenderDash() {
   if (!host) return;
   const r = _calcTelaCompute(_calcTela);
   const mc = _calcTelaCorMargem(r.margemReal);
-  const larguraBarra = Math.max(0, Math.min(100, r.margemReal));
+
+  // Medidor circular (ring) da margem — escala visual 0–50% (o número é exato).
+  const RAD = 52, CIRC = 2 * Math.PI * RAD;
+  const frac = Math.max(0, Math.min(1, r.margemReal / 50));
+  const dash = (frac * CIRC).toFixed(1), gap = (CIRC - frac * CIRC).toFixed(1);
+  const gauge =
+    '<div style="display:flex;justify-content:center;margin:4px 0 6px">' +
+      '<svg viewBox="0 0 120 120" width="150" height="150">' +
+        '<circle cx="60" cy="60" r="' + RAD + '" fill="none" stroke="var(--surface-2)" stroke-width="9"/>' +
+        '<circle cx="60" cy="60" r="' + RAD + '" fill="none" stroke="' + mc.cor + '" stroke-width="9" stroke-linecap="round" stroke-dasharray="' + dash + ' ' + gap + '" transform="rotate(-90 60 60)"/>' +
+        '<text x="60" y="56" text-anchor="middle" style="font-family:var(--serif);font-size:25px;fill:' + mc.cor + '">' + fmt(r.margemReal) + '%</text>' +
+        '<text x="60" y="74" text-anchor="middle" style="font-size:8px;letter-spacing:.18em;text-transform:uppercase;fill:var(--muted)">Margem real</text>' +
+      '</svg>' +
+    '</div>' +
+    (r.margemDesejadaPct ? '<div style="text-align:center;margin:-2px 0 8px"><span class="ct-eyebrow">Meta ' + fmt(r.margemDesejadaPct) + '%</span></div>' : '');
+
+  // Chips de destaque
+  const chip = (lbl, val, cor) =>
+    '<div style="padding:9px 6px;border:1px solid var(--border);border-radius:8px;text-align:center">' +
+      '<div class="ct-eyebrow" style="font-size:9px;letter-spacing:.1em">' + lbl + '</div>' +
+      '<div style="font-family:var(--mono,monospace);font-size:12.5px;font-weight:500;margin-top:3px;color:' + (cor || 'var(--ink)') + '">' + val + '</div>' +
+    '</div>';
+  const chips =
+    '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:0 0 4px">' +
+      chip('Custo total', brl(r.custoTotal)) +
+      chip('Venda', brl(r.vendaBruta), '#1D9E75') +
+      chip('Lucro líq.', brl(r.lucroLiquido), r.lucroLiquido >= 0 ? '#1D9E75' : '#B0241F') +
+    '</div>';
+
+  // Barra "pra onde vai a venda": custo · comissão · lucro
+  let comp = '';
+  if (r.vendaBruta > 0) {
+    const wC = (r.custoTotal / r.vendaBruta * 100), wK = (r.comissao / r.vendaBruta * 100), wL = Math.max(0, (r.lucroLiquido / r.vendaBruta * 100));
+    const corLucro = r.lucroLiquido >= 0 ? '#1D9E75' : '#B0241F';
+    const leg = (cor, txt) => '<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:8px;height:8px;background:' + cor + ';border-radius:2px"></span>' + txt + '</span>';
+    comp =
+      '<div class="ct-eyebrow" style="margin:14px 0 6px">Pra onde vai a venda</div>' +
+      '<div style="display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--surface-2)">' +
+        '<div style="width:' + wC + '%;background:#94A3B8" title="Custo"></div>' +
+        '<div style="width:' + wK + '%;background:#BA7517" title="Comissão"></div>' +
+        '<div style="width:' + wL + '%;background:' + corLucro + '" title="Lucro"></div>' +
+      '</div>' +
+      '<div style="display:flex;gap:12px;margin-top:7px;font-size:10.5px;color:var(--muted);flex-wrap:wrap">' +
+        leg('#94A3B8', 'Custo') + leg('#BA7517', 'Comissão') + leg(corLucro, 'Lucro') +
+      '</div>';
+  }
+
   host.innerHTML = '' +
-    '<div class="card"><div class="card-head"><h3>Resultado</h3>' +
+    '<div class="card" style="border-top:3px solid ' + mc.cor + '"><div class="card-head"><h3>Resultado</h3>' +
       '<span style="font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.15em;color:' + mc.cor + '">' + mc.label + '</span></div>' +
     '<div class="card-body">' +
-      '<div style="text-align:center;padding:14px;border:1px solid var(--border);border-radius:8px;margin-bottom:14px">' +
-        '<div class="ct-eyebrow">Margem real</div>' +
-        '<div style="font-family:var(--serif);font-size:40px;line-height:1.05;color:' + mc.cor + '">' + fmt(r.margemReal) + '<span style="font-size:18px">%</span></div>' +
-        '<div style="height:6px;background:var(--surface-2);border-radius:4px;margin-top:10px;overflow:hidden">' +
-          '<div style="height:100%;width:' + larguraBarra + '%;background:' + mc.cor + ';transition:width .25s ease"></div></div>' +
-        (r.margemDesejadaPct ? '<div class="ct-eyebrow" style="margin-top:8px">Meta: ' + fmt(r.margemDesejadaPct) + '%</div>' : '') +
-      '</div>' +
-      '<div class="ct-eyebrow" style="margin:2px 0 4px">Volume</div>' +
+      gauge +
+      chips +
+      comp +
+      '<div class="ct-eyebrow" style="margin:16px 0 4px">Volume</div>' +
       _calcLinhaDash('Área total', fmt(r.area) + ' m²') +
       _calcLinhaDash('Metros de perfis', fmt(r.metrosPerfis) + ' m') +
       _calcLinhaDash('Horas necessárias', fmt(r.horasTotais) + ' h') +
