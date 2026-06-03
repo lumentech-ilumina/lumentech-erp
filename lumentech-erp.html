@@ -155,11 +155,11 @@
 
 <!-- ?v=... = cache-busting. Bump a versão (data-seq) a cada mudança de JS pra
      a equipe receber o novo código no F5 normal (sem precisar de Ctrl+Shift+R). -->
-<script src="js/supabase-client.js?v=2026-06-03-1"></script>
-<script src="js/db.js?v=2026-06-03-1"></script>
-<script src="js/repo.js?v=2026-06-03-1"></script>
-<script src="js/auth.js?v=2026-06-03-1"></script>
-<script src="js/permissoes.js?v=2026-06-03-1"></script>
+<script src="js/supabase-client.js?v=2026-06-03-2"></script>
+<script src="js/db.js?v=2026-06-03-2"></script>
+<script src="js/repo.js?v=2026-06-03-2"></script>
+<script src="js/auth.js?v=2026-06-03-2"></script>
+<script src="js/permissoes.js?v=2026-06-03-2"></script>
 <script>
 const ICONS = {
   home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2h-4v-7H9v7H5a2 2 0 01-2-2z"/></svg>',
@@ -22263,7 +22263,7 @@ function gerarSkuAuto() {
   else if (f.tipo === 'servico') prefixo = 'SRV';
   else if (cat?.prefixoSku) prefixo = cat.prefixoSku;
 
-  const n = (DB.counters.sku || 1);
+  const n = nextNum('sku'); // reserva o número (monotônico) — preview == valor salvo, sem repetir
   const sku = `${prefixo}-${String(n).padStart(4,'0')}`;
   $('#pf-sku').value = sku;
   f.sku = sku;
@@ -22297,9 +22297,8 @@ function salvarProduto() {
     else if (f.tipo === 'materia_prima') prefixo = 'MP';
     else if (f.tipo === 'servico') prefixo = 'SRV';
     else if (cat?.prefixoSku) prefixo = cat.prefixoSku;
-    const n = DB.counters.sku || 1;
+    const n = nextNum('sku'); // monotônico: nunca repete, mesmo após sync/regressão
     f.sku = `${prefixo}-${String(n).padStart(4,'0')}`;
-    DB.counters.sku = n + 1;
   }
 
   // Preço padrão na tabela padrão

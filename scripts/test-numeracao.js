@@ -56,13 +56,20 @@ const teste = `
   const o = nextId('orc','ORC');
   assert(Number(o) > 8, 'orçamento pula pra frente do maior existente (' + o + ')');
 
-  console.log('\\n=== CENÁRIO E — SKU acompanha o maior SKU em uso (campo != id) ===');
+  console.log('\\n=== CENÁRIO E — SKU (nextNum) acompanha o maior SKU em uso (campo != id) ===');
   DB.produtos = [{id:'1', sku:'ILU-0050'},{id:'2', sku:'ELE-0051'}];
-  DB.counters.sku = 3;
-  const sku = nextId('sku','SKU');
-  assert(/0052$|^52$/.test(sku) || Number(String(sku).match(/(\\\\d+)$/)[1]) > 51, 'SKU não reusa (gerou ' + sku + ', > 51)');
+  DB.counters.sku = 3;                 // contador atrás dos SKUs existentes
+  const n1 = nextNum('sku');
+  assert(n1 > 51, 'SKU não reusa: pula pra frente do maior em uso (gerou ' + n1 + ', > 51)');
 
-  console.log('\\n' + (typeof __falhasRef === 'function' ? '' : ''));
+  console.log('\\n=== CENÁRIO F — gerar SKU (preview) reserva o número: 2 cliques não repetem ===');
+  const p1 = nextNum('sku');
+  const p2 = nextNum('sku');
+  assert(p1 !== p2 && p2 === p1 + 1, 'cliques consecutivos geram números distintos (' + p1 + ' != ' + p2 + ')');
+  // E o produto salvo a seguir também não pega um já usado:
+  DB.produtos.push({id:'3', sku:'PRD-' + String(p1).padStart(4,'0')});
+  const p3 = nextNum('sku');
+  assert(p3 > p1 && p3 > p2, 'próximo SKU após salvar não colide (' + p3 + ')');
 })();
 `;
 

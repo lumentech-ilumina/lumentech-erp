@@ -667,10 +667,11 @@ function _maxNumeroEmUso(key) {
 // High-water mark por sessão: o auto-refresh (60s) recarrega counters do servidor
 // e poderia regredir o contador no meio da sessão. Isto impede regressão.
 const _hwmContadores = {};
-function nextId(key, prefix, digits = 4) {
-  // O próximo número é SEMPRE maior que: o contador, o maior número já em uso na
-  // coleção e o último emitido nesta sessão. Garante que NUNCA repete (lacunas são
-  // aceitáveis; repetição não é).
+// Próximo NÚMERO monotônico de um contador (consome). SEMPRE maior que: o contador,
+// o maior número já em uso na coleção e o último emitido nesta sessão. Garante que
+// NUNCA repete (lacunas são aceitáveis; repetição não é). Use direto quando precisar
+// só do número (ex.: SKU com prefixo dinâmico); use nextId() quando quiser o id pronto.
+function nextNum(key) {
   const n = Math.max(
     Number(DB.counters[key] || 1),
     _maxNumeroEmUso(key) + 1,
@@ -678,6 +679,10 @@ function nextId(key, prefix, digits = 4) {
   );
   DB.counters[key] = n + 1;
   _hwmContadores[key] = n;
+  return n;
+}
+function nextId(key, prefix, digits = 4) {
+  const n = nextNum(key);
   // Para os módulos principais, retorna só o número (1, 2, 3...)
   if (_SIMPLE_NUM_KEYS.has(key)) return String(n);
   // Demais entidades mantêm prefixo (compatibilidade legada)
