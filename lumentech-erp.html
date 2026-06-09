@@ -40493,7 +40493,8 @@ function _calcTelaAutoPerfis() {
   _calcTelaLer();
   const s = _calcTela;
   const area = (Number(s.tela && s.tela.qtd) || 0) + (Number(s.impressa && s.impressa.qtd) || 0) + (Number(s.linho && s.linho.qtd) || 0);
-  const perim = area > 0 ? +(4 * Math.sqrt(area)).toFixed(2) : 0;
+  // Quebrou? Arredonda pra cima (compra-se metro inteiro de perfil/baguete).
+  const perim = area > 0 ? Math.ceil(4 * Math.sqrt(area)) : 0;
   if (s.aluminio) s.aluminio.qtd = perim;
   if (s.baguete)  s.baguete.qtd  = perim;
   const setVal = (id, v) => { const e = document.getElementById(id); if (e) e.value = v || ''; };
