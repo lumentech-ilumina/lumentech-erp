@@ -35,7 +35,7 @@
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <!-- Supabase JS SDK -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<link rel="stylesheet" href="styles.css?v=2026-05-26-conferencia-local">
+<link rel="stylesheet" href="styles.css?v=2026-06-09-brandbook">
 </head>
 <body>
 
@@ -639,6 +639,7 @@ function logout() {
         // Mesmo se o signOut falhar (offline), apaga o token pra refresh não re-logar
         try { localStorage.removeItem('lumentech_erp_supabase_auth'); } catch (_) {}
       }
+      try { localStorage.removeItem('lumentech_erp_corte'); } catch (_) {}
       window.CURRENT_USER = null;
       $('#app').classList.remove('active');
       $('#login-screen').style.display = 'flex';
@@ -5680,7 +5681,7 @@ function renderFinanceiro(parent) {
     crBody.appendChild(el(`
       <div class="table-wrap">
         <table class="tbl">
-          <thead><tr><th>ID</th><th>Cliente</th><th>Descrição</th><th>Centro</th><th>Vencimento</th><th>Valor</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>ID</th><th>Cliente</th><th>Descrição</th><th>Centro</th><th>Vencimento</th><th>Forma</th><th>Valor</th><th>Status</th><th></th></tr></thead>
           <tbody>
             ${[...DB.contasReceber].reverse().map(c => `
               <tr>
@@ -5689,6 +5690,7 @@ function renderFinanceiro(parent) {
                 <td>${escapeHtml(c.desc||'—')}</td>
                 <td>${renderCentroBadge(c.centroCustoId)}</td>
                 <td class="num">${isoToBR(c.venc)}</td>
+                <td>${escapeHtml(c.formaPagamento||'—')}</td>
                 <td class="num num-strong">${brl(c.valor)}</td>
                 <td><span class="badge ${c.status==='Recebido'?'success':c.status==='Vencido'?'danger':'info'}">${c.status}</span></td>
                 <td>
@@ -5716,7 +5718,7 @@ function renderFinanceiro(parent) {
     cpBody.appendChild(el(`
       <div class="table-wrap">
         <table class="tbl">
-          <thead><tr><th>ID</th><th>Descrição</th><th>Fornecedor</th><th>Centro</th><th>Vencimento</th><th>Valor</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>ID</th><th>Descrição</th><th>Fornecedor</th><th>Centro</th><th>Vencimento</th><th>Forma</th><th>Valor</th><th>Status</th><th></th></tr></thead>
           <tbody>
             ${[...DB.contasPagar].reverse().map(c => `
               <tr>
@@ -5725,6 +5727,7 @@ function renderFinanceiro(parent) {
                 <td>${escapeHtml(c.fornecedor||'—')}</td>
                 <td>${renderCentroBadge(c.centroCustoId)}</td>
                 <td class="num">${isoToBR(c.venc)}</td>
+                <td>${escapeHtml(c.formaPagamento||'—')}</td>
                 <td class="num num-strong">${brl(c.valor)}</td>
                 <td><span class="badge ${c.status==='Pago'?'success':c.status==='Vencido'?'danger':'warning'}">${c.status}</span></td>
                 <td>
@@ -5772,6 +5775,12 @@ function openContaModal(tipo, id) {
         </div>
         <div class="field"><label>Parcela</label><input type="text" id="f-parc" placeholder="1/1" value="${escapeHtml(editing?.parcela||'1/1')}"></div>
       </div>
+      <div class="field"><label>Forma de pagamento</label>
+        <select id="f-forma">
+          <option value="">— Não informado —</option>
+          ${['Dinheiro','Pix','Cartão crédito','Cartão débito','Boleto','Transferência','Crediário'].map(p => `<option ${editing?.formaPagamento===p?'selected':''}>${p}</option>`).join('')}
+        </select>
+      </div>
       <div class="field">
         <label>Centro de custo</label>
         ${(() => {
@@ -5797,6 +5806,7 @@ function openContaModal(tipo, id) {
       venc: m.root.querySelector('#f-venc').value,
       status: m.root.querySelector('#f-status').value,
       parcela: m.root.querySelector('#f-parc').value.trim(),
+      formaPagamento: m.root.querySelector('#f-forma').value,
       centroCustoId: m.root.querySelector('#f-cc').value,
       obs: m.root.querySelector('#f-obs').value.trim(),
     };
@@ -43617,6 +43627,7 @@ function renderCPListagem(parent, filtroFn) {
   const fornecedoresUnicos = [...new Set(DB.contasPagar.map(c => c.fornecedor).filter(Boolean))].sort();
 
   parent.appendChild(el(`
+    <div class="cp-filtros-bloco">
     <div class="filters">
       <input type="text" class="filter-input" id="cp-busca" placeholder="Buscar por ID, descrição, fornecedor..." value="${escapeHtml(_cpFiltros.busca || '')}">
       <select class="filter-select" id="cp-forn">
@@ -43649,6 +43660,7 @@ function renderCPListagem(parent, filtroFn) {
         </div>
         <button class="btn btn-secondary btn-sm" id="cp-limpar-filtros" type="button">Limpar</button>
       </div>
+    </div>
     </div>
   `));
 
@@ -47317,6 +47329,27 @@ async function entrarNoSistema(authUser, paginaInicial) {
   navigate(paginaInicial || 'inicio');
 }
 
+// === Corte diário de sessão às 18:05 (horário de Brasília/Fortaleza, UTC-3) ===
+// A sessão vale até o PRÓXIMO 18:05. Ao abrir/atualizar depois desse horário, pede
+// login de novo (checagem lazy, só no load — sem timer). Brasil não tem horário de
+// verão desde 2019, então 18:05 BRT = 21:05 UTC fixo.
+function _proximoCorte1805() {
+  const agora = Date.now();
+  const d = new Date();
+  let corte = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 21, 5, 0, 0);
+  if (agora >= corte) corte += 24 * 60 * 60 * 1000; // já passou das 18:05 hoje → próximo é amanhã
+  return corte;
+}
+function _definirCorteSessao() {
+  try { localStorage.setItem('lumentech_erp_corte', String(_proximoCorte1805())); } catch (_) {}
+}
+function _sessaoExpirada() {
+  try {
+    const c = Number(localStorage.getItem('lumentech_erp_corte'));
+    return isFinite(c) && c > 0 && Date.now() >= c;
+  } catch (_) { return false; }
+}
+
 document.getElementById('login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const errBox = $('#login-error');
@@ -47349,6 +47382,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
       return;
     }
     errBox.style.display = 'none';
+    _definirCorteSessao();   // sessão válida até o próximo 18:05
     repo.logs.push({
       usuarioId: result.user?.id,
       acao: 'Login realizado',
@@ -47397,9 +47431,21 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     return;
   }
 
-  // Restaura a última página visitada (em vez de cair sempre no Início)
-  let pagina = 'inicio';
-  try { pagina = localStorage.getItem('lumentech_erp_pagina') || 'inicio'; } catch (_) {}
+  // Corte das 18:05: se a sessão passou do horário, desloga e cai no login.
+  if (_sessaoExpirada()) {
+    try { await authService.logout(); } catch (_) {}
+    try { localStorage.removeItem('lumentech_erp_supabase_auth'); } catch (_) {}
+    try { localStorage.removeItem('lumentech_erp_corte'); } catch (_) {}
+    window.CURRENT_USER = null;
+    if (loader) loader.remove();
+    if (loginScreen) loginScreen.style.display = 'flex';
+    return;
+  }
+  // Sessão válida mas sem corte definido (sessão anterior a este recurso) → define agora.
+  try { if (!localStorage.getItem('lumentech_erp_corte')) _definirCorteSessao(); } catch (_) {}
+
+  // Sempre abre no Início — não restaura a última página visitada.
+  const pagina = 'inicio';
 
   // Remove hash "preso" de visitas anteriores (ex: #/contas-pagar). Sem isso, o
   // roteador de hash dispara ~500ms após o load e sobrescreve esta restauração,
