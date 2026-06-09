@@ -40279,6 +40279,36 @@ function _calcRemoverEstoque(tipo, idx) {
   renderPage('calc-tela');
 }
 
+// Aba "Orçamento" — resumo + forma de pagamento/parcelas + gerar (botão minimalista).
+function _calcOrcamentoSecaoHTML(s) {
+  const gateOk = s.comissaoSel !== '' && !!s.clienteId && !!s.parceiroId;
+  if (!gateOk) {
+    return '<div class="card"><div class="card-body">' +
+      '<div class="ct-sec">Orçamento</div>' +
+      '<div class="fp-hint" style="color:var(--warning)">Complete o Início (comissão, parceiro e cliente) e a medida do projeto na aba Membrana para gerar o orçamento.</div>' +
+    '</div></div>';
+  }
+  const r = _calcTelaCompute(s);
+  const cliente = (DB.clientes || []).find(c => c.id === s.clienteId);
+  const parceiro = s.parceiroId === '__direto' ? null : (DB.parceiros || []).find(p => p.id === s.parceiroId);
+  const formas = ['Dinheiro', 'Pix', 'Cartão crédito', 'Cartão débito', 'Boleto', 'Transferência', 'Crediário'];
+  return '<div class="card"><div class="card-body">' +
+    '<div class="ct-sec">Orçamento</div>' +
+    _calcLinhaDash('Cliente', escapeHtml(cliente ? (cliente.nome || '—') : '—')) +
+    _calcLinhaDash('Parceiro', parceiro ? escapeHtml(parceiro.nome || '—') : 'Venda direta') +
+    (s.comissaoPct ? _calcLinhaDash('Comissão', fmt(s.comissaoPct) + '%') : '') +
+    _calcLinhaDash('Total da venda', brl(r.vendaBruta), true) +
+    '<div style="display:grid;grid-template-columns:1.5fr .7fr;gap:10px;margin-top:14px">' +
+      '<div class="field" style="margin:0"><label>Forma de pagamento</label><select id="ct-forma" onchange="_calcTelaInput()">' +
+        '<option value="">Selecione…</option>' +
+        formas.map(f => '<option' + (s.formaPagamento === f ? ' selected' : '') + '>' + f + '</option>').join('') +
+      '</select></div>' +
+      '<div class="field" style="margin:0"><label>Parcelas</label><input type="number" min="1" step="1" id="ct-parcelas" value="' + (s.parcelas || 1) + '" onchange="_calcTelaInput()"></div>' +
+    '</div>' +
+    '<button class="btn btn-primary btn-sm" style="margin-top:14px" onclick="_calcGerarOrcamento()">Gerar orçamento</button>' +
+  '</div></div>';
+}
+
 function _calcTelaRenderCalc(parent) {
   const s = _calcTela;
   const wrap = el('<div class="ct-grid"></div>');
@@ -40292,10 +40322,11 @@ function _calcTelaRenderCalc(parent) {
       lbl + (on ? ' <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;margin-left:5px;vertical-align:middle;opacity:.7"></span>' : '') +
     '</button>';
   const subtabs =
-    '<div style="display:flex;gap:6px;margin-bottom:14px">' +
+    '<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">' +
       tabBtn('membrana', 'Membrana') +
       tabBtn('led', 'Sistema LED', s.temLed) +
       tabBtn('servico', 'Serviço', s.temServico) +
+      tabBtn('orcamento', 'Orçamento') +
     '</div>';
 
   const isAdmin = !!(window.CURRENT_USER && window.CURRENT_USER.admin);
@@ -40368,7 +40399,6 @@ function _calcTelaRenderCalc(parent) {
         _calcTelaGrupoMaterial('Perfil de alumínio', 'aluminio', 'm', s) +
         _calcTelaGrupoMaterial('Baguete', 'baguete', 'm', s) +
       '</div>' +
-      '<div class="fp-hint" style="margin-top:8px">A membrana e os acabamentos seguem o m² do projeto. Alumínio e baguete são estimados pela metragem e podem ser ajustados.</div>' +
     '</div></div>';
 
   // Mão de obra & custos — só ADMIN
@@ -40391,9 +40421,10 @@ function _calcTelaRenderCalc(parent) {
   const abaMembrana = etapaInicio + etapaMedida + etapaItens + cardCustosAdmin + cardObs;
 
   form.innerHTML = subtabs + (
-    aba === 'led'     ? _calcLedSecaoHTML(s) :
-    aba === 'servico' ? _calcServicoSecaoHTML(s) :
-                        abaMembrana
+    aba === 'led'       ? _calcLedSecaoHTML(s) :
+    aba === 'servico'   ? _calcServicoSecaoHTML(s) :
+    aba === 'orcamento' ? _calcOrcamentoSecaoHTML(s) :
+                          abaMembrana
   );
 
   const dash = el('<div id="calc-dash"></div>');
@@ -40464,24 +40495,10 @@ function _calcTelaRenderDash() {
     ? '<button type="button" class="btn btn-secondary btn-sm" onclick="_calcToggleVerCusto()">' + (_calcVerCusto ? 'Ocultar custo' : 'Ver custo') + '</button>'
     : '';
 
-  // Seção "Gerar orçamento" — só com o Início completo
-  const formas = ['Dinheiro', 'Pix', 'Cartão crédito', 'Cartão débito', 'Boleto', 'Transferência', 'Crediário'];
-  const orcSec = !gateOk ? '' :
-    '<div class="ct-sec" style="margin-bottom:8px">Gerar orçamento</div>' +
-    '<div style="display:grid;grid-template-columns:1.5fr .7fr;gap:8px">' +
-      '<div class="field" style="margin:0"><label>Forma de pagamento</label><select id="ct-forma" onchange="_calcTelaInput()">' +
-        '<option value="">Selecione…</option>' +
-        formas.map(f => '<option' + (s.formaPagamento === f ? ' selected' : '') + '>' + f + '</option>').join('') +
-      '</select></div>' +
-      '<div class="field" style="margin:0"><label>Parcelas</label><input type="number" min="1" step="1" id="ct-parcelas" value="' + (s.parcelas || 1) + '" onchange="_calcTelaInput()"></div>' +
-    '</div>' +
-    '<button class="btn btn-primary btn-block" style="margin-top:10px" onclick="_calcGerarOrcamento()">' + ICONS.check + ' Gerar orçamento</button>';
-
   host.innerHTML = '' +
     '<div class="card" style="border-top:3px solid ' + (verCusto ? mc.cor : '#1D9E75') + '">' +
       '<div class="card-head"><h3>Resultado</h3>' + btnCusto + '</div>' +
       '<div class="card-body">' + headline + blocoCusto + '</div>' +
-      (orcSec ? '<div class="card-body" style="border-top:1px solid var(--border)">' + orcSec + '</div>' : '') +
       '<div class="card-body" style="border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:8px">' +
         '<button class="btn btn-secondary btn-sm" onclick="salvarCalcTela()">' + ICONS.check + ' ' + (_calcTelaEditId ? 'Atualizar' : 'Salvar') + ' cálculo</button>' +
         '<button class="btn btn-secondary btn-sm" onclick="gerarPDFCalcTela()">' + ICONS['file-text'] + ' PDF</button>' +
