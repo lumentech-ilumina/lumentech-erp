@@ -39852,6 +39852,7 @@ let _calcTela = null;        // estado do formulário em edição
 let _calcTelaEditId = null;  // id sendo editado (null = novo orçamento)
 let _calcTelaView = 'calc';  // 'calc' | 'historico'
 let _calcMembAba = 'membrana'; // aba interna da calculadora: 'membrana' | 'led' | 'servico'
+let _calcDashDetalhes = false; // painel de resultado: mostrar detalhamento completo (recolhido por padrão)
 let _calcAtiva = null;       // qual calculadora está aberta (null = hub de calculadoras)
 
 // Tipos de calculadora disponíveis no hub. Só 'membrana' funciona; as demais
@@ -40259,6 +40260,12 @@ function _calcTelaRenderCalc(parent) {
   _calcTelaRenderDash();
 }
 
+// Abre/fecha o detalhamento do painel de resultado (estado preservado entre re-renders)
+function _calcToggleDetalhes() {
+  _calcDashDetalhes = !_calcDashDetalhes;
+  _calcTelaRenderDash();
+}
+
 function _calcLinhaDash(l, v, forte) {
   return '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0">' +
     '<span style="font-size:12.5px;color:var(--muted)">' + l + '</span>' +
@@ -40271,60 +40278,44 @@ function _calcTelaRenderDash() {
   const r = _calcTelaCompute(_calcTela);
   const mc = _calcTelaCorMargem(r.margemReal);
 
-  // Medidor circular (ring) da margem — escala visual 0–50% (o número é exato).
+  // Medidor circular (ring) da margem — compacto. Escala visual 0–50% (número exato).
   const RAD = 52, CIRC = 2 * Math.PI * RAD;
   const frac = Math.max(0, Math.min(1, r.margemReal / 50));
   const dash = (frac * CIRC).toFixed(1), gap = (CIRC - frac * CIRC).toFixed(1);
   const gauge =
-    '<div style="display:flex;justify-content:center;margin:4px 0 6px">' +
-      '<svg viewBox="0 0 120 120" width="150" height="150">' +
+    '<div style="display:flex;justify-content:center;margin:2px 0 4px">' +
+      '<svg viewBox="0 0 120 120" width="104" height="104">' +
         '<circle cx="60" cy="60" r="' + RAD + '" fill="none" stroke="var(--surface-2)" stroke-width="9"/>' +
         '<circle cx="60" cy="60" r="' + RAD + '" fill="none" stroke="' + mc.cor + '" stroke-width="9" stroke-linecap="round" stroke-dasharray="' + dash + ' ' + gap + '" transform="rotate(-90 60 60)"/>' +
         '<text x="60" y="56" text-anchor="middle" style="font-family:var(--serif);font-size:25px;fill:' + mc.cor + '">' + fmt(r.margemReal) + '%</text>' +
-        '<text x="60" y="74" text-anchor="middle" style="font-size:8px;letter-spacing:.18em;text-transform:uppercase;fill:var(--muted)">Margem real</text>' +
+        '<text x="60" y="74" text-anchor="middle" style="font-size:8px;letter-spacing:.18em;text-transform:uppercase;fill:var(--muted)">Margem' + (r.margemDesejadaPct ? ' · meta ' + fmt(r.margemDesejadaPct) + '%' : '') + '</text>' +
       '</svg>' +
-    '</div>' +
-    (r.margemDesejadaPct ? '<div style="text-align:center;margin:-2px 0 8px"><span class="ct-eyebrow">Meta ' + fmt(r.margemDesejadaPct) + '%</span></div>' : '');
+    '</div>';
 
-  // Chips de destaque
+  // Chips de destaque — resumo essencial
   const chip = (lbl, val, cor) =>
-    '<div style="padding:9px 6px;border:1px solid var(--border);border-radius:8px;text-align:center">' +
+    '<div style="padding:8px 6px;border:1px solid var(--border);text-align:center">' +
       '<div class="ct-eyebrow" style="font-size:9px;letter-spacing:.1em">' + lbl + '</div>' +
       '<div style="font-family:var(--mono,monospace);font-size:12.5px;font-weight:500;margin-top:3px;color:' + (cor || 'var(--ink)') + '">' + val + '</div>' +
     '</div>';
   const chips =
-    '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:0 0 4px">' +
+    '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:0">' +
       chip('Custo total', brl(r.custoTotal)) +
       chip('Venda', brl(r.vendaBruta), '#1D9E75') +
       chip('Lucro líq.', brl(r.lucroLiquido), r.lucroLiquido >= 0 ? '#1D9E75' : '#B0241F') +
     '</div>';
 
-  // Barra "pra onde vai a venda": custo · comissão · lucro
-  let comp = '';
-  if (r.vendaBruta > 0) {
-    const wC = (r.custoTotal / r.vendaBruta * 100), wK = (r.comissao / r.vendaBruta * 100), wL = Math.max(0, (r.lucroLiquido / r.vendaBruta * 100));
-    const corLucro = r.lucroLiquido >= 0 ? '#1D9E75' : '#B0241F';
-    const leg = (cor, txt) => '<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:8px;height:8px;background:' + cor + ';border-radius:2px"></span>' + txt + '</span>';
-    comp =
-      '<div class="ct-eyebrow" style="margin:14px 0 6px">Pra onde vai a venda</div>' +
-      '<div style="display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--surface-2)">' +
-        '<div style="width:' + wC + '%;background:#999999" title="Custo"></div>' +
-        '<div style="width:' + wK + '%;background:#BA7517" title="Comissão"></div>' +
-        '<div style="width:' + wL + '%;background:' + corLucro + '" title="Lucro"></div>' +
-      '</div>' +
-      '<div style="display:flex;gap:12px;margin-top:7px;font-size:10.5px;color:var(--muted);flex-wrap:wrap">' +
-        leg('#999999', 'Custo') + leg('#BA7517', 'Comissão') + leg(corLucro, 'Lucro') +
-      '</div>';
-  }
+  // Detalhamento (recolhido por padrão) — toggle preserva estado entre re-renders
+  const toggle =
+    '<button type="button" onclick="_calcToggleDetalhes()" style="width:100%;margin-top:10px;background:none;border:0;border-top:1px solid var(--border);padding:9px 0 0;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;font:inherit;font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">' +
+      (_calcDashDetalhes ? 'Ocultar detalhes' : 'Ver detalhes') +
+      '<span style="font-size:9px">' + (_calcDashDetalhes ? '▲' : '▼') + '</span>' +
+    '</button>';
 
-  host.innerHTML = '' +
-    '<div class="card" style="border-top:3px solid ' + mc.cor + '"><div class="card-head"><h3>Resultado</h3>' +
-      '<span style="font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.15em;color:' + mc.cor + '">' + mc.label + '</span></div>' +
-    '<div class="card-body">' +
-      gauge +
-      chips +
-      comp +
-      '<div class="ct-eyebrow" style="margin:16px 0 4px">Volume</div>' +
+  let detalhes = '';
+  if (_calcDashDetalhes) {
+    detalhes = '<div style="margin-top:8px">' +
+      '<div class="ct-eyebrow" style="margin:4px 0 4px">Volume</div>' +
       _calcLinhaDash('Área total', fmt(r.area) + ' m²') +
       _calcLinhaDash('Metros de perfis', fmt(r.metrosPerfis) + ' m') +
       _calcLinhaDash('Horas necessárias', fmt(r.horasTotais) + ' h') +
@@ -40341,6 +40332,17 @@ function _calcTelaRenderDash() {
       _calcLinhaDash('Comissão (' + fmt(r.comissaoPct) + '%)', '− ' + brl(r.comissao)) +
       _calcLinhaDash('Lucro bruto', brl(r.lucroBruto)) +
       _calcLinhaDash('Lucro líquido', brl(r.lucroLiquido), true) +
+    '</div>';
+  }
+
+  host.innerHTML = '' +
+    '<div class="card" style="border-top:3px solid ' + mc.cor + '"><div class="card-head"><h3>Resultado</h3>' +
+      '<span style="font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.15em;color:' + mc.cor + '">' + mc.label + '</span></div>' +
+    '<div class="card-body">' +
+      gauge +
+      chips +
+      toggle +
+      detalhes +
     '</div>' +
     '<div class="card-body" style="border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:8px">' +
       '<button class="btn btn-primary btn-sm" onclick="salvarCalcTela()">' + ICONS.check + ' ' + (_calcTelaEditId ? 'Atualizar' : 'Salvar') + ' orçamento</button>' +
