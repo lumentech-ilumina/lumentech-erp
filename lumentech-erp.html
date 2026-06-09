@@ -39904,19 +39904,45 @@ const _CALC_TIPOS = [
   { id: 'em-construcao-2', nome: 'Nova calculadora', desc: 'Defina o que entra aqui.', icon: 'calculator', ativa: false },
 ];
 
+// Itens da calc de Membrana → custo vem do PRODUTO CADASTRADO no catálogo (por ID curto).
+const CALC_MEMBRANA_PRODUTOS = { tela: 27, impressa: 28, linho: 29, aluminio: 30, pvc: 31, baguete: 32 };
+// Acha o produto pelo número curto do ID (PRD-0027 → 27); tenta formatos comuns e, por fim, a parte numérica.
+function _calcProdutoPorNum(num) {
+  const prods = (typeof DB !== 'undefined' && DB && DB.produtos) ? DB.produtos : [];
+  const alvo = Number(num);
+  return prods.find(p => p.id === 'PRD-' + String(alvo).padStart(4, '0'))
+      || prods.find(p => String(p.id) === String(alvo))
+      || prods.find(p => parseInt(String(p.id).replace(/\D/g, ''), 10) === alvo)
+      || null;
+}
+// Custo do produto: Preço de custo → Preço de compra → Custo médio.
+function _calcCustoProduto(num) {
+  const p = _calcProdutoPorNum(num);
+  if (!p) return 0;
+  return Number(p.precoCusto) || Number(p.precoCompra) || Number(p.custoMedio) || 0;
+}
+// Atualiza os custos dos itens (tela/impressa/linho/alumínio/pvc/baguete) a partir do catálogo.
+function _calcRefrescarCustos(s) {
+  ['tela', 'impressa', 'linho', 'aluminio', 'pvc', 'baguete'].forEach(k => {
+    if (!s[k]) s[k] = { qtd: 0, custo: 0 };
+    s[k].custo = _calcCustoProduto(CALC_MEMBRANA_PRODUTOS[k]);
+  });
+}
+
 function _calcTelaNovo() {
-  // Custos unit. fixados (lembrados do último salvar) pra não redigitar toda vez
+  // Custos unit. fixados (lembrados do último salvar) — usados só pros itens de Serviço (cabo/parafuso)
   const fx = (typeof DB !== 'undefined' && DB && DB.calcCustosFixos) ? DB.calcCustosFixos : {};
   const cu = k => Number(fx[k]) || 0;
+  const cp = k => _calcCustoProduto(CALC_MEMBRANA_PRODUTOS[k]);
   return {
     nome: '',
     // Itens do projeto (só custo) — membranas em m², perfis/baguete em m
-    tela:       { qtd: 0, custo: cu('tela') },     // Membrana TechFrame™ (chave 'tela' mantida p/ compat dos salvos)
-    impressa:   { qtd: 0, custo: cu('impressa') }, // Membrana impressa (m²)
-    linho:      { qtd: 0, custo: cu('linho') },    // Membrana linho (m²)
-    aluminio:   { qtd: 0, custo: cu('aluminio') },
-    pvc:        { qtd: 0, custo: cu('pvc') },
-    baguete:    { qtd: 0, custo: cu('baguete') },
+    tela:       { qtd: 0, custo: cp('tela') },     // Membrana TechFrame™ — produto ID 27
+    impressa:   { qtd: 0, custo: cp('impressa') }, // Membrana impressa (m²) — ID 28
+    linho:      { qtd: 0, custo: cp('linho') },    // Membrana linho (m²) — ID 29
+    aluminio:   { qtd: 0, custo: cp('aluminio') }, // Perfil de alumínio — ID 30
+    pvc:        { qtd: 0, custo: cp('pvc') },       // Perfil PVC — ID 31
+    baguete:    { qtd: 0, custo: cp('baguete') },   // Baguete — ID 32
     custoFixo:  0,
     maoObra:    { horasPorM2: 0, valorHora: 0 },
     // Sistema LED (opcional) — fontes/fitas vêm do estoque (só custo)
@@ -39931,7 +39957,7 @@ function _calcTelaNovo() {
       custosVariaveis: 0,   // R$ (custo)
     },
     comissaoPct: 0,
-    margemDesejadaPct: 30,
+    margemDesejadaPct: 46,   // margem fixa (não aparece no formulário)
     observacoes: '',
   };
 }
@@ -40033,6 +40059,8 @@ function _calcTelaInjectStyles() {
     '.ct-mat-nome{font-size:12.5px;font-weight:500;line-height:1.12}' +
     '.ct-mat-un{display:block;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-weight:500;margin-top:1px}' +
     '.ct-mat-row input{text-align:right}' +
+    // Itens do projeto: custo unit. oculto → 3 colunas (nome · qtd · valor total)
+    '.ct-itens .ct-mat-head,.ct-itens .ct-mat-row{grid-template-columns:1.6fr .9fr 1fr;min-width:280px}' +
     '@media(max-width:900px){.ct-grid{grid-template-columns:1fr}.ct-grid #calc-dash{position:static}}';
   document.head.appendChild(st);
 }
@@ -40089,10 +40117,12 @@ function _calcRenderMembrana(parent) {
 function _calcTelaGrupoMaterial(titulo, key, unidade, s) {
   const m = s[key] || {};
   const tot = (Number(m.qtd) || 0) * (Number(m.custo) || 0);
-  const inp = (suf) => '<input type="number" min="0" step="0.01" inputmode="decimal" id="ct-' + key + '-' + suf + '" value="' + (m[suf] || '') + '" oninput="_calcTelaInput()">';
+  // Custo unitário é fixo e NÃO aparece — só a quantidade é editável; o valor total soma sozinho.
+  // Membranas (m²) disparam o auto-preenchimento de perfil de alumínio e baguete.
+  const handler = (key === 'tela' || key === 'impressa' || key === 'linho') ? '_calcTelaAutoPerfis()' : '_calcTelaInput()';
   return '<div class="ct-mat-row">' +
     '<div class="ct-mat-nome">' + titulo + '<span class="ct-mat-un">' + unidade + '</span></div>' +
-    inp('qtd') + inp('custo') +
+    '<input type="number" min="0" step="0.01" inputmode="decimal" id="ct-' + key + '-qtd" value="' + (m.qtd || '') + '" oninput="' + handler + '">' +
     '<div class="ct-mat-tot" id="ct-tot-' + key + '" style="text-align:right;font-family:var(--mono,monospace);font-size:12px;color:var(--ink)">' + brl(tot) + '</div>' +
   '</div>';
 }
@@ -40259,8 +40289,8 @@ function _calcTelaRenderCalc(parent) {
     '</div></div>' +
     '<div class="card" style="margin-bottom:14px"><div class="card-body">' +
       '<div class="ct-sec">Itens do projeto</div>' +
-      '<div class="ct-tbl">' +
-        '<div class="ct-mat-head"><span>Item</span><span class="r">Qtd</span><span class="r">Custo unit.</span><span class="r">Valor total</span></div>' +
+      '<div class="ct-tbl ct-itens">' +
+        '<div class="ct-mat-head"><span>Item</span><span class="r">Qtd</span><span class="r">Valor total</span></div>' +
         _calcTelaGrupoMaterial('Membrana TechFrame™', 'tela', 'm²', s) +
         _calcTelaGrupoMaterial('Impressa', 'impressa', 'm²', s) +
         _calcTelaGrupoMaterial('Linho', 'linho', 'm²', s) +
@@ -40278,11 +40308,9 @@ function _calcTelaRenderCalc(parent) {
       '<div class="field" style="margin-top:12px"><label>Custo fixo (R$)</label><input type="number" min="0" step="0.01" inputmode="decimal" id="ct-custofixo" value="' + (s.custoFixo || '') + '" placeholder="Ex.: deslocamento, taxas, equipamento..." oninput="_calcTelaInput()"></div>' +
     '</div></div>' +
     '<div class="card" style="margin-bottom:14px"><div class="card-body">' +
-      '<div class="ct-sec">Comissão &amp; margem</div>' +
-      '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">' +
+      '<div class="ct-sec">Comissão</div>' +
         '<div class="field"><label>Comissão (%)</label><input type="number" min="0" step="0.1" inputmode="decimal" id="ct-comissao" value="' + (s.comissaoPct || '') + '" oninput="_calcTelaInput()"></div>' +
-        '<div class="field"><label>Margem desejada (%)</label><input type="number" min="0" step="0.1" inputmode="decimal" id="ct-margem" value="' + (s.margemDesejadaPct || '') + '" oninput="_calcTelaInput()"></div>' +
-      '</div></div></div>' +
+      '</div></div>' +
     '<div class="card"><div class="card-body">' +
       '<div class="ct-sec">Observações</div>' +
       '<textarea id="ct-obs" rows="3" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font:inherit;resize:vertical" placeholder="Detalhes técnicos, condições, prazos..." oninput="_calcTelaInput()">' + escapeHtml(s.observacoes || '') + '</textarea>' +
@@ -40401,12 +40429,12 @@ function _calcTelaLer() {
   // Aba "Membrana" — só lê se os campos estão no DOM (abas LED/Serviço não os renderizam)
   if (ex('ct-nome')) s.nome = g('ct-nome');
   if (ex('ct-tela-qtd')) {
-    s.tela     = { qtd: nf('ct-tela-qtd'),     custo: nf('ct-tela-custo') };
-    s.impressa = { qtd: nf('ct-impressa-qtd'), custo: nf('ct-impressa-custo') };
-    s.linho    = { qtd: nf('ct-linho-qtd'),    custo: nf('ct-linho-custo') };
-    s.aluminio = { qtd: nf('ct-aluminio-qtd'), custo: nf('ct-aluminio-custo') };
-    s.pvc      = { qtd: nf('ct-pvc-qtd'),      custo: nf('ct-pvc-custo') };
-    s.baguete  = { qtd: nf('ct-baguete-qtd'),  custo: nf('ct-baguete-custo') };
+    // Quantidade vem do input; o custo unitário vem do produto cadastrado (oculto na tela).
+    ['tela', 'impressa', 'linho', 'aluminio', 'pvc', 'baguete'].forEach(k => {
+      if (!s[k]) s[k] = { qtd: 0, custo: 0 };
+      s[k].qtd = nf('ct-' + k + '-qtd');
+      s[k].custo = _calcCustoProduto(CALC_MEMBRANA_PRODUTOS[k]);
+    });
   }
   if (ex('ct-custofixo')) s.custoFixo  = nf('ct-custofixo');
   if (ex('ct-mo-horas'))  s.maoObra  = { horasPorM2: nf('ct-mo-horas'), valorHora: nf('ct-mo-valor') };
@@ -40456,6 +40484,22 @@ function _calcTelaInput() {
     const m = s.servico[k] || {}; setTot('ct-tot-serv-' + k, (Number(m.qtd) || 0) * (Number(m.custo) || 0));
   });
   _calcTelaRenderDash();
+}
+
+// m² da membrana → estima os metros de perfil de alumínio e baguete (perímetro de um
+// quadrado de mesma área: 4·√área). Só recalcula quando a metragem da membrana muda;
+// editar os campos de alumínio/baguete NÃO dispara isto, então dá pra ajustar à mão.
+function _calcTelaAutoPerfis() {
+  _calcTelaLer();
+  const s = _calcTela;
+  const area = (Number(s.tela && s.tela.qtd) || 0) + (Number(s.impressa && s.impressa.qtd) || 0) + (Number(s.linho && s.linho.qtd) || 0);
+  const perim = area > 0 ? +(4 * Math.sqrt(area)).toFixed(2) : 0;
+  if (s.aluminio) s.aluminio.qtd = perim;
+  if (s.baguete)  s.baguete.qtd  = perim;
+  const setVal = (id, v) => { const e = document.getElementById(id); if (e) e.value = v || ''; };
+  setVal('ct-aluminio-qtd', perim);
+  setVal('ct-baguete-qtd', perim);
+  _calcTelaInput();
 }
 
 function _calcTelaLimpar() {
@@ -40509,6 +40553,7 @@ function abrirCalcTela(id) {
   _calcTela.aluminio = Object.assign({ qtd: 0, custo: 0, venda: 0 }, o.aluminio || {});
   _calcTela.pvc = Object.assign({ qtd: 0, custo: 0, venda: 0 }, o.pvc || {});
   _calcTela.baguete = Object.assign({ qtd: 0, custo: 0, venda: 0 }, o.baguete || {});
+  _calcRefrescarCustos(_calcTela);   // custo unit. sempre do produto cadastrado (não do snapshot salvo)
   _calcTela.custoFixo = Number(o.custoFixo) || 0;
   _calcTela.maoObra = Object.assign({ horasPorM2: 0, valorHora: 0 }, o.maoObra || {});
   _calcTela.temLed = !!o.temLed;
@@ -40518,7 +40563,7 @@ function abrirCalcTela(id) {
   _calcTela.temServico = !!o.temServico;
   _calcTela.servico = Object.assign({ cabo: { qtd: 0, custo: 0, venda: 0 }, parafuso: { qtd: 0, custo: 0, venda: 0 }, maoObraM2: 0, custosVariaveis: 0 }, (o.servico && o.servico.cabo ? o.servico : {}));
   _calcTela.comissaoPct = Number(o.comissaoPct) || 0;
-  _calcTela.margemDesejadaPct = Number(o.margemDesejadaPct) || 0;
+  _calcTela.margemDesejadaPct = 46;   // margem fixa
   _calcTela.observacoes = o.observacoes || '';
   _calcTelaEditId = id;
   _calcAtiva = 'membrana';
