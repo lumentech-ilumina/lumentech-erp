@@ -39894,6 +39894,7 @@ let _calcTelaEditId = null;  // id sendo editado (null = novo orçamento)
 let _calcTelaView = 'calc';  // 'calc' | 'historico'
 let _calcMembAba = 'membrana'; // aba interna da calculadora: 'membrana' | 'led' | 'servico'
 let _calcDashDetalhes = false; // painel de resultado: mostrar detalhamento completo (recolhido por padrão)
+let _calcVerCusto = false;     // admin: revelar custos (oculto por padrão)
 let _calcAtiva = null;       // qual calculadora está aberta (null = hub de calculadoras)
 
 // Tipos de calculadora disponíveis no hub. Só 'membrana' funciona; as demais
@@ -39957,8 +39958,18 @@ function _calcTelaNovo() {
       custosVariaveis: 0,   // R$ (custo)
     },
     comissaoPct: 0,
-    margemDesejadaPct: 46,   // margem fixa (não aparece no formulário)
+    margemDesejadaPct: 46,   // margem fixa (markup, não aparece no formulário)
     observacoes: '',
+    // Fluxo guiado
+    comissaoSel: '',         // '' (não escolhido) | '0' (sem) | '5' | '10'
+    parceiroId: '',
+    clienteId: '',
+    larguraM: 0,             // medida do projeto
+    alturaM: 0,
+    temLinho: false,
+    temImpressa: false,
+    formaPagamento: '',
+    parcelas: 1,
   };
 }
 
@@ -39987,7 +39998,8 @@ function _calcTelaCompute(s) {
 
   const tela = linha(s.tela), imp = linha(s.impressa), lin = linha(s.linho);
   const alu = linha(s.aluminio), pvc = linha(s.pvc), bag = linha(s.baguete);
-  const area = tela.qtd + imp.qtd + lin.qtd;              // m² total de membrana
+  // Área do projeto = Largura × Altura (um painel). Fallback: m² da membrana base.
+  const area = (num(s.larguraM) * num(s.alturaM)) || tela.qtd;
   const metrosPerfis = alu.qtd + pvc.qtd + bag.qtd;       // metros lineares de perfis
 
   // Mão de obra (horas × valor/hora) — mantida
@@ -40011,19 +40023,22 @@ function _calcTelaCompute(s) {
   const custoTotal = custoItens + custoMaoObra + custoMaoObraM2 + custoFixo + custosVariaveis;
 
   const comissaoPct = num(s.comissaoPct);
-  const margemDesejadaPct = num(s.margemDesejadaPct);
-  // Preço de venda = custo / (1 − comissão% − margem%). Se inviável (≥100%), cai no custo.
-  const denom = 1 - (comissaoPct / 100) - (margemDesejadaPct / 100);
-  const precoVenda = (custoTotal > 0 && denom > 0) ? custoTotal / denom : custoTotal;
-  const vendaBruta = precoVenda;                          // a venda É o preço calculado
-  const comissao = precoVenda * (comissaoPct / 100);
-  const lucroBruto = precoVenda - custoTotal;
-  const lucroLiquido = precoVenda - custoTotal - comissao;
+  const margemDesejadaPct = num(s.margemDesejadaPct) || 46;
+  // Modelo: VENDA = custo + margem 46% (markup). Comissão é acrescida POR CIMA
+  // (o cliente cobre o repasse ao parceiro; o lucro líquido continua sendo a margem).
+  const markup = 1 + (margemDesejadaPct / 100);           // 1,46
+  const vendaBase = custoTotal * markup;                  // custo + 46%
+  const comissao = vendaBase * (comissaoPct / 100);       // comissão sobre a venda
+  const precoVenda = vendaBase + comissao;
+  const vendaBruta = precoVenda;
+  const vendaItens = custoItens * markup;                 // venda só dos materiais/itens
+  const lucroBruto = vendaBase - custoTotal;
+  const lucroLiquido = precoVenda - custoTotal - comissao; // = vendaBase − custoTotal
   const margemReal = precoVenda > 0 ? (lucroLiquido / precoVenda) * 100 : 0;
-  const precoSugerido = (custoTotal > 0 && denom > 0) ? custoTotal / denom : null;
+  const precoSugerido = precoVenda;
   return { tela, imp, lin, alu, pvc, bag, area, metrosPerfis, horasTotais, custoMaoObra,
     custoMaoObraM2, custosVariaveis, custoFixo, ledCusto, servItensCusto,
-    custoItens, custoMateriais, custoTotal, vendaBruta, precoVenda, comissaoPct, comissao,
+    custoItens, custoMateriais, custoTotal, vendaBruta, precoVenda, vendaItens, markup, comissaoPct, comissao,
     lucroBruto, lucroLiquido, margemReal, margemDesejadaPct, precoSugerido };
 }
 
@@ -40116,14 +40131,16 @@ function _calcRenderMembrana(parent) {
 
 function _calcTelaGrupoMaterial(titulo, key, unidade, s) {
   const m = s[key] || {};
-  const tot = (Number(m.qtd) || 0) * (Number(m.custo) || 0);
-  // Custo unitário é fixo e NÃO aparece — só a quantidade é editável; o valor total soma sozinho.
-  // Membranas (m²) disparam o auto-preenchimento de perfil de alumínio e baguete.
-  const handler = (key === 'tela' || key === 'impressa' || key === 'linho') ? '_calcTelaAutoPerfis()' : '_calcTelaInput()';
+  const markup = 1 + (Number(s.margemDesejadaPct) || 46) / 100;
+  // "Valor total" = VENDA (custo × markup). O custo em si fica oculto (só admin vê no painel).
+  const venda = (Number(m.qtd) || 0) * (Number(m.custo) || 0) * markup;
+  // Membranas (tela/impressa/linho) seguem o m² do projeto → quantidade read-only.
+  const membrana = (key === 'tela' || key === 'impressa' || key === 'linho');
+  const attrs = membrana ? ' readonly title="Vem da medida do projeto"' : ' oninput="_calcTelaInput()"';
   return '<div class="ct-mat-row">' +
     '<div class="ct-mat-nome">' + titulo + '<span class="ct-mat-un">' + unidade + '</span></div>' +
-    '<input type="number" min="0" step="0.01" inputmode="decimal" id="ct-' + key + '-qtd" value="' + (m.qtd || '') + '" oninput="' + handler + '">' +
-    '<div class="ct-mat-tot" id="ct-tot-' + key + '" style="text-align:right;font-family:var(--mono,monospace);font-size:12px;color:var(--ink)">' + brl(tot) + '</div>' +
+    '<input type="number" min="0" step="0.01" inputmode="decimal" id="ct-' + key + '-qtd" value="' + (m.qtd || '') + '"' + attrs + '>' +
+    '<div class="ct-mat-tot" id="ct-tot-' + key + '" style="text-align:right;font-family:var(--mono,monospace);font-size:12px;color:var(--ink)">' + brl(venda) + '</div>' +
   '</div>';
 }
 
@@ -40281,40 +40298,97 @@ function _calcTelaRenderCalc(parent) {
       tabBtn('servico', 'Serviço', s.temServico) +
     '</div>';
 
-  const abaMembrana =
+  const isAdmin = !!(window.CURRENT_USER && window.CURRENT_USER.admin);
+  const gateOk = s.comissaoSel !== '' && !!s.clienteId && !!s.parceiroId;
+  const m2proj = (Number(s.larguraM) || 0) * (Number(s.alturaM) || 0);
+  const optsCli = (DB.clientes || []).slice().sort((a, b) => (a.nome || '').localeCompare(b.nome || ''))
+    .map(c => '<option value="' + escapeHtml(c.id) + '"' + (s.clienteId === c.id ? ' selected' : '') + '>' + escapeHtml(c.nome || c.id) + '</option>').join('');
+  const optsPar = (DB.parceiros || []).filter(p => p.ativo !== false).slice().sort((a, b) => (a.nome || '').localeCompare(b.nome || ''))
+    .map(p => '<option value="' + escapeHtml(p.id) + '"' + (s.parceiroId === p.id ? ' selected' : '') + '>' + escapeHtml(p.nome || p.id) + '</option>').join('');
+  const togAcab = (key, lbl, on) =>
+    '<label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:500">' +
+      '<input type="checkbox" ' + (on ? 'checked' : '') + ' onchange="_calcTelaToggleAcab(\'' + key + '\',this.checked)"> ' + lbl +
+    '</label>';
+
+  // ETAPA 1 — Início (libera o resto)
+  const etapaInicio =
     '<div class="card" style="margin-bottom:14px"><div class="card-body">' +
-      '<div class="ct-sec">Projeto</div>' +
-      '<div class="field"><label>Identificação do projeto / cliente</label>' +
-      '<input type="text" id="ct-nome" value="' + escapeHtml(s.nome || '') + '" placeholder="Ex.: Fachada tensionada — Loja Centro" oninput="_calcTelaInput()"></div>' +
-    '</div></div>' +
+      '<div class="ct-sec">1 · Início</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">' +
+        '<div class="field"><label>Comissão *</label><select id="ct-comissaoSel" onchange="_calcTelaGate()">' +
+          '<option value="">Selecione…</option>' +
+          '<option value="0"' + (s.comissaoSel === '0' ? ' selected' : '') + '>Sem comissão</option>' +
+          '<option value="5"' + (s.comissaoSel === '5' ? ' selected' : '') + '>5%</option>' +
+          '<option value="10"' + (s.comissaoSel === '10' ? ' selected' : '') + '>10%</option>' +
+        '</select></div>' +
+        '<div class="field"><label>Parceiro *</label><select id="ct-parceiro" onchange="_calcTelaGate()">' +
+          '<option value="">Selecione…</option>' +
+          '<option value="__direto"' + (s.parceiroId === '__direto' ? ' selected' : '') + '>Sem parceiro / venda direta</option>' +
+          optsPar +
+        '</select></div>' +
+        '<div class="field"><label>Cliente *</label><select id="ct-cliente" onchange="_calcTelaGate()">' +
+          '<option value="">Selecione…</option>' +
+          optsCli +
+        '</select></div>' +
+      '</div>' +
+      '<div class="field" style="margin-top:10px"><label>Identificação (opcional)</label>' +
+        '<input type="text" id="ct-nome" value="' + escapeHtml(s.nome || '') + '" placeholder="Ex.: Fachada — Loja Centro" oninput="_calcTelaInput()"></div>' +
+      (!gateOk ? '<div class="fp-hint" style="margin-top:8px;color:var(--warning)">Selecione comissão, parceiro e cliente para liberar a medida do projeto.</div>' : '') +
+    '</div></div>';
+
+  // ETAPA 2 — Medida do projeto (m² + desenho 2D)
+  const etapaMedida = !gateOk ? '' :
     '<div class="card" style="margin-bottom:14px"><div class="card-body">' +
-      '<div class="ct-sec">Itens do projeto</div>' +
+      '<div class="ct-sec">2 · Medida do projeto</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:center">' +
+        '<div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
+            '<div class="field" style="margin:0"><label>Largura (m)</label><input type="number" min="0" step="0.01" id="ct-largura" value="' + (s.larguraM || '') + '" oninput="_calcTelaMedida()"></div>' +
+            '<div class="field" style="margin:0"><label>Altura (m)</label><input type="number" min="0" step="0.01" id="ct-altura" value="' + (s.alturaM || '') + '" oninput="_calcTelaMedida()"></div>' +
+          '</div>' +
+          '<div class="field" style="margin-top:10px"><label>Metragem</label><input type="text" id="ct-m2-disp" value="' + (m2proj > 0 ? fmt(m2proj) + ' m²' : '—') + '" readonly style="font-weight:500"></div>' +
+        '</div>' +
+        '<div id="ct-2d" style="display:flex;align-items:center;justify-content:center;min-height:130px">' + _calcDesenho2D(s.larguraM, s.alturaM) + '</div>' +
+      '</div>' +
+    '</div></div>';
+
+  // ETAPA 3 — Membrana & acabamentos
+  const etapaItens = !gateOk ? '' :
+    '<div class="card" style="margin-bottom:14px"><div class="card-body">' +
+      '<div class="ct-sec">3 · Membrana &amp; acabamentos</div>' +
+      '<div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:12px">' +
+        togAcab('impressa', 'Impressão', s.temImpressa) +
+        togAcab('linho', 'Linho', s.temLinho) +
+      '</div>' +
       '<div class="ct-tbl ct-itens">' +
         '<div class="ct-mat-head"><span>Item</span><span class="r">Qtd</span><span class="r">Valor total</span></div>' +
         _calcTelaGrupoMaterial('Membrana TechFrame™', 'tela', 'm²', s) +
-        _calcTelaGrupoMaterial('Impressa', 'impressa', 'm²', s) +
-        _calcTelaGrupoMaterial('Linho', 'linho', 'm²', s) +
+        (s.temImpressa ? _calcTelaGrupoMaterial('Impressa', 'impressa', 'm²', s) : '') +
+        (s.temLinho ? _calcTelaGrupoMaterial('Linho', 'linho', 'm²', s) : '') +
         _calcTelaGrupoMaterial('Perfil de alumínio', 'aluminio', 'm', s) +
-        _calcTelaGrupoMaterial('Perfil PVC', 'pvc', 'm', s) +
         _calcTelaGrupoMaterial('Baguete', 'baguete', 'm', s) +
       '</div>' +
-    '</div></div>' +
+      '<div class="fp-hint" style="margin-top:8px">A membrana e os acabamentos seguem o m² do projeto. Alumínio e baguete são estimados pela metragem e podem ser ajustados.</div>' +
+    '</div></div>';
+
+  // Mão de obra & custos — só ADMIN
+  const cardCustosAdmin = (!gateOk || !isAdmin) ? '' :
     '<div class="card" style="margin-bottom:14px"><div class="card-body">' +
-      '<div class="ct-sec">Mão de obra &amp; custos</div>' +
+      '<div class="ct-sec">Mão de obra &amp; custos <span class="ct-mat-un" style="display:inline">admin</span></div>' +
       '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">' +
-        '<div class="field"><label>Horas por m²</label><input type="number" min="0" step="0.01" inputmode="decimal" id="ct-mo-horas" value="' + (s.maoObra.horasPorM2 || '') + '" oninput="_calcTelaInput()"></div>' +
-        '<div class="field"><label>Valor da hora do operador (R$)</label><input type="number" min="0" step="0.01" inputmode="decimal" id="ct-mo-valor" value="' + (s.maoObra.valorHora || '') + '" oninput="_calcTelaInput()"></div>' +
+        '<div class="field"><label>Horas por m²</label><input type="number" min="0" step="0.01" id="ct-mo-horas" value="' + (s.maoObra.horasPorM2 || '') + '" oninput="_calcTelaInput()"></div>' +
+        '<div class="field"><label>Valor da hora (R$)</label><input type="number" min="0" step="0.01" id="ct-mo-valor" value="' + (s.maoObra.valorHora || '') + '" oninput="_calcTelaInput()"></div>' +
       '</div>' +
-      '<div class="field" style="margin-top:12px"><label>Custo fixo (R$)</label><input type="number" min="0" step="0.01" inputmode="decimal" id="ct-custofixo" value="' + (s.custoFixo || '') + '" placeholder="Ex.: deslocamento, taxas, equipamento..." oninput="_calcTelaInput()"></div>' +
-    '</div></div>' +
-    '<div class="card" style="margin-bottom:14px"><div class="card-body">' +
-      '<div class="ct-sec">Comissão</div>' +
-        '<div class="field"><label>Comissão (%)</label><input type="number" min="0" step="0.1" inputmode="decimal" id="ct-comissao" value="' + (s.comissaoPct || '') + '" oninput="_calcTelaInput()"></div>' +
-      '</div></div>' +
+      '<div class="field" style="margin-top:12px"><label>Custo fixo (R$)</label><input type="number" min="0" step="0.01" id="ct-custofixo" value="' + (s.custoFixo || '') + '" oninput="_calcTelaInput()"></div>' +
+    '</div></div>';
+
+  const cardObs = !gateOk ? '' :
     '<div class="card"><div class="card-body">' +
       '<div class="ct-sec">Observações</div>' +
       '<textarea id="ct-obs" rows="3" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font:inherit;resize:vertical" placeholder="Detalhes técnicos, condições, prazos..." oninput="_calcTelaInput()">' + escapeHtml(s.observacoes || '') + '</textarea>' +
     '</div></div>';
+
+  const abaMembrana = etapaInicio + etapaMedida + etapaItens + cardCustosAdmin + cardObs;
 
   form.innerHTML = subtabs + (
     aba === 'led'     ? _calcLedSecaoHTML(s) :
@@ -40344,81 +40418,145 @@ function _calcLinhaDash(l, v, forte) {
 function _calcTelaRenderDash() {
   const host = document.getElementById('calc-dash');
   if (!host) return;
-  const r = _calcTelaCompute(_calcTela);
+  const s = _calcTela;
+  const r = _calcTelaCompute(s);
+  const isAdmin = !!(window.CURRENT_USER && window.CURRENT_USER.admin);
+  const verCusto = isAdmin && _calcVerCusto;
+  const gateOk = s.comissaoSel !== '' && !!s.clienteId && !!s.parceiroId;
   const mc = _calcTelaCorMargem(r.margemReal);
 
-  // Medidor circular (ring) da margem — compacto. Escala visual 0–50% (número exato).
-  const RAD = 52, CIRC = 2 * Math.PI * RAD;
-  const frac = Math.max(0, Math.min(1, r.margemReal / 50));
-  const dash = (frac * CIRC).toFixed(1), gap = (CIRC - frac * CIRC).toFixed(1);
-  const gauge =
-    '<div style="display:flex;justify-content:center;margin:2px 0 4px">' +
-      '<svg viewBox="0 0 120 120" width="104" height="104">' +
+  // Headline: total da venda (sempre visível — custo NÃO aparece aqui)
+  const headline =
+    '<div style="text-align:center;padding:4px 0 12px">' +
+      '<div class="ct-eyebrow" style="font-size:9px;letter-spacing:.14em">Total da venda</div>' +
+      '<div style="font-family:var(--serif,serif);font-size:30px;font-weight:300;color:#1D9E75;line-height:1;margin-top:6px">' + brl(r.vendaBruta) + '</div>' +
+      (r.comissao > 0 ? '<div style="font-size:11px;color:var(--muted);margin-top:6px">Inclui comissão de ' + fmt(r.comissaoPct) + '% · ' + brl(r.comissao) + '</div>' : '') +
+    '</div>';
+
+  // Bloco de custo/margem — SÓ admin com "Ver custo" ligado
+  let blocoCusto = '';
+  if (verCusto) {
+    const RAD = 52, CIRC = 2 * Math.PI * RAD;
+    const frac = Math.max(0, Math.min(1, r.margemReal / 50));
+    const dash = (frac * CIRC).toFixed(1), gap = (CIRC - frac * CIRC).toFixed(1);
+    const gauge =
+      '<div style="display:flex;justify-content:center;margin:2px 0 8px"><svg viewBox="0 0 120 120" width="92" height="92">' +
         '<circle cx="60" cy="60" r="' + RAD + '" fill="none" stroke="var(--surface-2)" stroke-width="9"/>' +
         '<circle cx="60" cy="60" r="' + RAD + '" fill="none" stroke="' + mc.cor + '" stroke-width="9" stroke-linecap="round" stroke-dasharray="' + dash + ' ' + gap + '" transform="rotate(-90 60 60)"/>' +
-        '<text x="60" y="56" text-anchor="middle" style="font-family:var(--serif);font-size:25px;fill:' + mc.cor + '">' + fmt(r.margemReal) + '%</text>' +
-        '<text x="60" y="74" text-anchor="middle" style="font-size:8px;letter-spacing:.18em;text-transform:uppercase;fill:var(--muted)">Margem' + (r.margemDesejadaPct ? ' · meta ' + fmt(r.margemDesejadaPct) + '%' : '') + '</text>' +
-      '</svg>' +
-    '</div>';
-
-  // Chips de destaque — resumo essencial
-  const chip = (lbl, val, cor) =>
-    '<div style="padding:8px 6px;border:1px solid var(--border);text-align:center">' +
-      '<div class="ct-eyebrow" style="font-size:9px;letter-spacing:.1em">' + lbl + '</div>' +
-      '<div style="font-family:var(--mono,monospace);font-size:12.5px;font-weight:500;margin-top:3px;color:' + (cor || 'var(--ink)') + '">' + val + '</div>' +
-    '</div>';
-  const chips =
-    '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:0">' +
-      chip('Custo total', brl(r.custoTotal)) +
-      chip('Venda', brl(r.vendaBruta), '#1D9E75') +
-      chip('Lucro líq.', brl(r.lucroLiquido), r.lucroLiquido >= 0 ? '#1D9E75' : '#B0241F') +
-    '</div>';
-
-  // Detalhamento (recolhido por padrão) — toggle preserva estado entre re-renders
-  const toggle =
-    '<button type="button" onclick="_calcToggleDetalhes()" style="width:100%;margin-top:10px;background:none;border:0;border-top:1px solid var(--border);padding:9px 0 0;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;font:inherit;font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">' +
-      (_calcDashDetalhes ? 'Ocultar detalhes' : 'Ver detalhes') +
-      '<span style="font-size:9px">' + (_calcDashDetalhes ? '▲' : '▼') + '</span>' +
-    '</button>';
-
-  let detalhes = '';
-  if (_calcDashDetalhes) {
-    detalhes = '<div style="margin-top:8px">' +
-      '<div class="ct-eyebrow" style="margin:4px 0 4px">Volume</div>' +
-      _calcLinhaDash('Área total', fmt(r.area) + ' m²') +
-      _calcLinhaDash('Metros de perfis', fmt(r.metrosPerfis) + ' m') +
-      _calcLinhaDash('Horas necessárias', fmt(r.horasTotais) + ' h') +
-      '<div class="ct-eyebrow" style="margin:12px 0 4px">Custos</div>' +
-      _calcLinhaDash('Itens (materiais, LED, serviço)', brl(r.custoItens)) +
-      (r.custoMaoObra > 0 ? _calcLinhaDash('Mão de obra (horas)', brl(r.custoMaoObra)) : '') +
-      (r.custoMaoObraM2 > 0 ? _calcLinhaDash('Mão de obra (por m²)', brl(r.custoMaoObraM2)) : '') +
-      (r.custosVariaveis > 0 ? _calcLinhaDash('Custos variáveis', brl(r.custosVariaveis)) : '') +
+        '<text x="60" y="57" text-anchor="middle" style="font-family:var(--serif);font-size:23px;fill:' + mc.cor + '">' + fmt(r.margemReal) + '%</text>' +
+        '<text x="60" y="75" text-anchor="middle" style="font-size:8px;letter-spacing:.16em;text-transform:uppercase;fill:var(--muted)">Margem real</text>' +
+      '</svg></div>';
+    blocoCusto = '<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:10px">' +
+      '<div class="ct-eyebrow" style="margin:0 0 6px;color:var(--danger)">Visão de custo · admin</div>' +
+      gauge +
+      _calcLinhaDash('Custo dos itens', brl(r.custoItens)) +
+      (r.custoMaoObra > 0 ? _calcLinhaDash('Mão de obra', brl(r.custoMaoObra)) : '') +
       (r.custoFixo > 0 ? _calcLinhaDash('Custo fixo', brl(r.custoFixo)) : '') +
-      ((r.custoMaoObra <= 0 && r.custoMaoObraM2 <= 0 && r.custosVariaveis <= 0 && r.custoFixo <= 0) ? _calcLinhaDash('Mão de obra', brl(0)) : '') +
       _calcLinhaDash('Custo total', brl(r.custoTotal), true) +
-      '<div class="ct-eyebrow" style="margin:12px 0 4px">Venda &amp; resultado</div>' +
-      _calcLinhaDash('Preço de venda (custo + ' + fmt(r.margemDesejadaPct) + '%)', brl(r.precoVenda), true) +
-      _calcLinhaDash('Comissão (' + fmt(r.comissaoPct) + '%)', '− ' + brl(r.comissao)) +
-      _calcLinhaDash('Lucro bruto', brl(r.lucroBruto)) +
       _calcLinhaDash('Lucro líquido', brl(r.lucroLiquido), true) +
+      '<div class="ct-eyebrow" style="margin:10px 0 4px">Volume</div>' +
+      _calcLinhaDash('Área', fmt(r.area) + ' m²') +
+      _calcLinhaDash('Perfis', fmt(r.metrosPerfis) + ' m') +
     '</div>';
   }
 
-  host.innerHTML = '' +
-    '<div class="card" style="border-top:3px solid ' + mc.cor + '"><div class="card-head"><h3>Resultado</h3>' +
-      '<span style="font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.15em;color:' + mc.cor + '">' + mc.label + '</span></div>' +
-    '<div class="card-body">' +
-      gauge +
-      chips +
-      toggle +
-      detalhes +
+  const btnCusto = isAdmin
+    ? '<button type="button" class="btn btn-secondary btn-sm" onclick="_calcToggleVerCusto()">' + (_calcVerCusto ? 'Ocultar custo' : 'Ver custo') + '</button>'
+    : '';
+
+  // Seção "Gerar orçamento" — só com o Início completo
+  const formas = ['Dinheiro', 'Pix', 'Cartão crédito', 'Cartão débito', 'Boleto', 'Transferência', 'Crediário'];
+  const orcSec = !gateOk ? '' :
+    '<div class="ct-sec" style="margin-bottom:8px">Gerar orçamento</div>' +
+    '<div style="display:grid;grid-template-columns:1.5fr .7fr;gap:8px">' +
+      '<div class="field" style="margin:0"><label>Forma de pagamento</label><select id="ct-forma" onchange="_calcTelaInput()">' +
+        '<option value="">Selecione…</option>' +
+        formas.map(f => '<option' + (s.formaPagamento === f ? ' selected' : '') + '>' + f + '</option>').join('') +
+      '</select></div>' +
+      '<div class="field" style="margin:0"><label>Parcelas</label><input type="number" min="1" step="1" id="ct-parcelas" value="' + (s.parcelas || 1) + '" onchange="_calcTelaInput()"></div>' +
     '</div>' +
-    '<div class="card-body" style="border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:8px">' +
-      '<button class="btn btn-primary btn-sm" onclick="salvarCalcTela()">' + ICONS.check + ' ' + (_calcTelaEditId ? 'Atualizar' : 'Salvar') + ' orçamento</button>' +
-      '<button class="btn btn-secondary btn-sm" onclick="gerarPDFCalcTela()">' + ICONS['file-text'] + ' PDF</button>' +
-      '<button class="btn btn-secondary btn-sm" onclick="exportarCSVCalcTela()">' + ICONS.download + ' Excel</button>' +
-      (_calcTelaEditId ? '<button class="btn btn-secondary btn-sm" onclick="_calcTelaLimpar()">Novo</button>' : '') +
-    '</div></div>';
+    '<button class="btn btn-primary btn-block" style="margin-top:10px" onclick="_calcGerarOrcamento()">' + ICONS.check + ' Gerar orçamento</button>';
+
+  host.innerHTML = '' +
+    '<div class="card" style="border-top:3px solid ' + (verCusto ? mc.cor : '#1D9E75') + '">' +
+      '<div class="card-head"><h3>Resultado</h3>' + btnCusto + '</div>' +
+      '<div class="card-body">' + headline + blocoCusto + '</div>' +
+      (orcSec ? '<div class="card-body" style="border-top:1px solid var(--border)">' + orcSec + '</div>' : '') +
+      '<div class="card-body" style="border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:8px">' +
+        '<button class="btn btn-secondary btn-sm" onclick="salvarCalcTela()">' + ICONS.check + ' ' + (_calcTelaEditId ? 'Atualizar' : 'Salvar') + ' cálculo</button>' +
+        '<button class="btn btn-secondary btn-sm" onclick="gerarPDFCalcTela()">' + ICONS['file-text'] + ' PDF</button>' +
+        '<button class="btn btn-secondary btn-sm" onclick="exportarCSVCalcTela()">' + ICONS.download + ' Excel</button>' +
+        (_calcTelaEditId ? '<button class="btn btn-secondary btn-sm" onclick="_calcTelaLimpar()">Novo</button>' : '') +
+      '</div>' +
+    '</div>';
+}
+
+// Admin liga/desliga a visão de custo no painel.
+function _calcToggleVerCusto() {
+  if (!(window.CURRENT_USER && window.CURRENT_USER.admin)) return;
+  _calcVerCusto = !_calcVerCusto;
+  _calcTelaRenderDash();
+}
+
+// Gera um orçamento no módulo Orçamentos a partir do cálculo atual.
+function _calcGerarOrcamento() {
+  _calcTelaLer();
+  const s = _calcTela;
+  if (!(s.comissaoSel !== '' && s.clienteId && s.parceiroId)) { toast('Complete o Início: comissão, parceiro e cliente', 'danger'); return; }
+  if (!s.formaPagamento) { toast('Escolha a forma de pagamento', 'danger'); return; }
+  const r = _calcTelaCompute(s);
+  if (!(r.vendaBruta > 0)) { toast('Informe a medida do projeto', 'danger'); return; }
+  if (typeof exigeAcesso === 'function' && !exigeAcesso('orcamentos', 'criar')) return;
+
+  const cliente = (DB.clientes || []).find(c => c.id === s.clienteId);
+  const parceiro = s.parceiroId === '__direto' ? null : (DB.parceiros || []).find(p => p.id === s.parceiroId);
+  // Distribui margem + comissão proporcionalmente nos itens (sem expor "custo" nem "comissão" como linha).
+  const vendaBase = r.custoTotal * r.markup;
+  const fator = vendaBase > 0 ? (r.vendaBruta / vendaBase) : 1;
+  const precoUnit = m => +(((Number(m.custo) || 0) * r.markup * fator)).toFixed(2);  // venda unitária
+  const itens = [];
+  const addItem = (nome, key, un) => { const m = s[key] || {}; const q = Number(m.qtd) || 0; if (q > 0) itens.push({ nome, unidade: un, qtd: q, valor: precoUnit(m), manual: true, desconto: 0, descontoTipo: '%', obs: '' }); };
+  addItem('Membrana TechFrame™', 'tela', 'm²');
+  if (s.temImpressa) addItem('Membrana impressa', 'impressa', 'm²');
+  if (s.temLinho) addItem('Membrana linho', 'linho', 'm²');
+  addItem('Perfil de alumínio', 'aluminio', 'm');
+  addItem('Baguete', 'baguete', 'm');
+  const extrasCusto = r.custoTotal - r.custoItens;  // mão de obra + fixo + LED + serviço
+  if (extrasCusto > 0) itens.push({ nome: 'Mão de obra e serviços', unidade: 'vb', qtd: 1, valor: +(extrasCusto * r.markup * fator).toFixed(2), manual: true, desconto: 0, descontoTipo: '%', obs: '' });
+
+  const total = +r.vendaBruta.toFixed(2);
+  const hoje = (typeof isoToday === 'function') ? isoToday() : new Date().toISOString().slice(0, 10);
+  const dVal = new Date(); dVal.setDate(dVal.getDate() + 15);
+  const validadeIso = dVal.toISOString().slice(0, 10);
+  const parcelasN = Math.max(1, Number(s.parcelas) || 1);
+  const valorParcela = +(total / parcelasN).toFixed(2);
+  const parcelasArr = [];
+  for (let i = 1; i <= parcelasN; i++) { const v = new Date(); v.setDate(v.getDate() + 30 * i); parcelasArr.push({ numero: i, valor: valorParcela, vencimento: v.toISOString().slice(0, 10) }); }
+
+  const data = {
+    id: nextId('orc', 'ORC'),
+    clienteId: s.clienteId, cliente: cliente ? (cliente.nome || '') : '',
+    vendedor: (window.CURRENT_USER && (window.CURRENT_USER.nome || window.CURRENT_USER.email)) || '',
+    parceiroId: parceiro ? parceiro.id : '', parceiroNome: parceiro ? (parceiro.nome || '') : '',
+    origem: 'Calculadora', tipoOrcamento: 'Projeto', linha: 'OrgLight™',
+    dataIso: hoje, validadeIso,
+    data: (typeof isoToBR === 'function' ? isoToBR(hoje) : hoje), validade: (typeof isoToBR === 'function' ? isoToBR(validadeIso) : validadeIso),
+    itens,
+    formaPagamento: s.formaPagamento,
+    pagamento: { forma: s.formaPagamento, parcelas: parcelasN, entrada: 0, valorParcela },
+    parcelas: parcelasArr,
+    subtotal: total, desconto: 0, frete: 0, total, valor: total,
+    comissaoPct: r.comissaoPct, comissao: +r.comissao.toFixed(2),
+    status: 'Aberto',
+    obsCliente: s.observacoes || '', obsInternas: 'Gerado pela Calculadora de Membrana',
+    criadoEm: new Date().toISOString(), atualizadoEm: new Date().toISOString(),
+  };
+  if (!Array.isArray(DB.orcamentos)) DB.orcamentos = [];
+  DB.orcamentos.push(data);
+  const ok = saveDB();
+  if (ok === false) return;
+  toast('Orçamento ' + data.id + ' gerado', 'success');
+  if (confirm('Orçamento ' + data.id + ' criado. Abrir no módulo Orçamentos?')) navigate('orcamentos');
 }
 
 function _calcTelaLer() {
@@ -40462,8 +40600,16 @@ function _calcTelaLer() {
     s.servico.custosVariaveis = nf('ct-serv-custosvar');
   }
 
-  if (ex('ct-comissao')) s.comissaoPct = nf('ct-comissao');
-  if (ex('ct-margem'))   s.margemDesejadaPct = nf('ct-margem');
+  // Início (fluxo guiado): comissão por lista, parceiro, cliente
+  if (ex('ct-comissaoSel')) { s.comissaoSel = g('ct-comissaoSel'); s.comissaoPct = Number(s.comissaoSel) || 0; }
+  if (ex('ct-parceiro'))    s.parceiroId = g('ct-parceiro');
+  if (ex('ct-cliente'))     s.clienteId = g('ct-cliente');
+  // Medida do projeto
+  if (ex('ct-largura')) s.larguraM = nf('ct-largura');
+  if (ex('ct-altura'))  s.alturaM  = nf('ct-altura');
+  // Pagamento (seção Gerar orçamento)
+  if (ex('ct-forma'))    s.formaPagamento = g('ct-forma');
+  if (ex('ct-parcelas')) s.parcelas = Math.max(1, nf('ct-parcelas') || 1);
   if (ex('ct-obs'))      s.observacoes = g('ct-obs');
 }
 
@@ -40473,10 +40619,11 @@ function _calcTelaInput() {
   // m² da membrana (seção LED) espelha a Membrana TechFrame em tempo real
   const m2el = document.getElementById('ct-led-m2');
   if (m2el) m2el.value = s.tela.qtd || '';
-  // "Valor total" por linha = qtd × custo (atualiza ao vivo)
+  // "Valor total" por linha = VENDA (qtd × custo × markup 46%) — custo fica oculto
+  const _mk = 1 + (Number(s.margemDesejadaPct) || 46) / 100;
   const setTot = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = brl(v); };
   ['tela', 'impressa', 'linho', 'aluminio', 'pvc', 'baguete'].forEach(k => {
-    const m = s[k] || {}; setTot('ct-tot-' + k, (Number(m.qtd) || 0) * (Number(m.custo) || 0));
+    const m = s[k] || {}; setTot('ct-tot-' + k, (Number(m.qtd) || 0) * (Number(m.custo) || 0) * _mk);
   });
   if (s.led) ['fontes', 'fitas'].forEach(tipo => (s.led[tipo] || []).forEach((it, i) =>
     setTot('ct-led-' + tipo + '-' + i + '-tot', (Number(it.qtd) || 0) * (Number(it.custo) || 0))));
@@ -40486,21 +40633,61 @@ function _calcTelaInput() {
   _calcTelaRenderDash();
 }
 
-// m² da membrana → estima os metros de perfil de alumínio e baguete (perímetro de um
-// quadrado de mesma área: 4·√área). Só recalcula quando a metragem da membrana muda;
-// editar os campos de alumínio/baguete NÃO dispara isto, então dá pra ajustar à mão.
-function _calcTelaAutoPerfis() {
+// Desenho 2D do projeto — retângulo cotado (Largura × Altura em metros).
+function _calcDesenho2D(L, A) {
+  L = Number(L) || 0; A = Number(A) || 0;
+  if (L <= 0 || A <= 0) return '<div style="font-size:11px;color:var(--muted-2);text-align:center;line-height:1.5">Informe largura e altura<br>para ver o desenho</div>';
+  const maxLado = Math.max(L, A);
+  const esc = 150 / maxLado;
+  const lpx = Math.max(24, L * esc), apx = Math.max(24, A * esc);
+  const pad = 30, stroke = '#1A1A1A', dim = '#666666';
+  return '<svg viewBox="0 0 ' + (lpx + pad * 2) + ' ' + (apx + pad * 2) + '" style="max-width:230px;height:auto;display:block">' +
+    '<rect x="' + pad + '" y="' + pad + '" width="' + lpx + '" height="' + apx + '" fill="#FFFFFF" stroke="' + stroke + '" stroke-width="1.2"/>' +
+    '<line x1="' + pad + '" y1="' + (pad - 13) + '" x2="' + (pad + lpx) + '" y2="' + (pad - 13) + '" stroke="' + dim + '" stroke-width="0.8"/>' +
+    '<text x="' + (pad + lpx / 2) + '" y="' + (pad - 17) + '" font-family="Unbounded,sans-serif" font-size="9" fill="' + dim + '" text-anchor="middle">' + fmt(L) + ' m</text>' +
+    '<line x1="' + (pad - 13) + '" y1="' + pad + '" x2="' + (pad - 13) + '" y2="' + (pad + apx) + '" stroke="' + dim + '" stroke-width="0.8"/>' +
+    '<text x="' + (pad - 17) + '" y="' + (pad + apx / 2 + 3) + '" font-family="Unbounded,sans-serif" font-size="9" fill="' + dim + '" text-anchor="middle" transform="rotate(-90 ' + (pad - 17) + ' ' + (pad + apx / 2 + 3) + ')">' + fmt(A) + ' m</text>' +
+    '<text x="' + (pad + lpx / 2) + '" y="' + (pad + apx / 2 + 3) + '" font-family="Unbounded,sans-serif" font-size="9.5" fill="' + dim + '" text-anchor="middle">' + fmt(L * A) + ' m²</text>' +
+  '</svg>';
+}
+
+// Mudou Largura/Altura → recalcula m² do projeto, alimenta membrana/acabamentos e perfis.
+function _calcTelaMedida() {
   _calcTelaLer();
   const s = _calcTela;
-  const area = (Number(s.tela && s.tela.qtd) || 0) + (Number(s.impressa && s.impressa.qtd) || 0) + (Number(s.linho && s.linho.qtd) || 0);
-  // Quebrou? Arredonda pra cima (compra-se metro inteiro de perfil/baguete).
-  const perim = area > 0 ? Math.ceil(4 * Math.sqrt(area)) : 0;
+  const m2 = +(((Number(s.larguraM) || 0) * (Number(s.alturaM) || 0)).toFixed(2));
+  s.tela.qtd = m2;
+  s.impressa.qtd = s.temImpressa ? m2 : 0;
+  s.linho.qtd = s.temLinho ? m2 : 0;
+  // Perfil de alumínio e baguete = perímetro estimado (4·√área), arredondado pra cima.
+  const perim = m2 > 0 ? Math.ceil(4 * Math.sqrt(m2)) : 0;
   if (s.aluminio) s.aluminio.qtd = perim;
   if (s.baguete)  s.baguete.qtd  = perim;
-  const setVal = (id, v) => { const e = document.getElementById(id); if (e) e.value = v || ''; };
+  const setVal = (id, v) => { const e = document.getElementById(id); if (e) e.value = (v || v === 0) ? v : ''; };
+  setVal('ct-tela-qtd', m2);
+  setVal('ct-impressa-qtd', s.impressa.qtd);
+  setVal('ct-linho-qtd', s.linho.qtd);
   setVal('ct-aluminio-qtd', perim);
   setVal('ct-baguete-qtd', perim);
+  const mm = document.getElementById('ct-m2-disp'); if (mm) mm.value = m2 > 0 ? fmt(m2) + ' m²' : '—';
+  const d2 = document.getElementById('ct-2d'); if (d2) d2.innerHTML = _calcDesenho2D(s.larguraM, s.alturaM);
   _calcTelaInput();
+}
+
+// Liga/desliga Impressão ou Linho — assume o m² do projeto e re-renderiza a lista.
+function _calcTelaToggleAcab(key, on) {
+  _calcTelaLer();
+  const s = _calcTela;
+  const m2 = +(((Number(s.larguraM) || 0) * (Number(s.alturaM) || 0)).toFixed(2));
+  if (key === 'impressa') { s.temImpressa = on; s.impressa.qtd = on ? m2 : 0; }
+  if (key === 'linho')    { s.temLinho = on;    s.linho.qtd = on ? m2 : 0; }
+  renderPage('calc-tela');
+}
+
+// Etapa Início: ao escolher comissão/parceiro/cliente, re-renderiza pra liberar a medida.
+function _calcTelaGate() {
+  _calcTelaLer();
+  renderPage('calc-tela');
 }
 
 function _calcTelaLimpar() {
@@ -40515,7 +40702,12 @@ function salvarCalcTela() {
   if (typeof exigeAcesso === 'function' && !exigeAcesso('orcamentos', _calcTelaEditId ? 'editar' : 'criar')) return;
   _calcTelaLer();
   const s = _calcTela;
-  if (!s.nome || !s.nome.trim()) { toast('Dê um nome ou identificação pro orçamento', 'danger'); const e = document.getElementById('ct-nome'); if (e) e.focus(); return; }
+  // Identificação: usa o nome digitado ou, se vazio, o cliente selecionado.
+  if (!s.nome || !s.nome.trim()) {
+    const cli = (DB.clientes || []).find(c => c.id === s.clienteId);
+    s.nome = cli ? (cli.nome || '') : '';
+  }
+  if (!s.nome || !s.nome.trim()) { toast('Dê um nome ou selecione o cliente', 'danger'); const e = document.getElementById('ct-nome'); if (e) e.focus(); return; }
   _calcTelaFixarCustos(s);   // fixa os custos unit. como padrão dos próximos cálculos
   const r = _calcTelaCompute(s);
   const registro = JSON.parse(JSON.stringify(s));
@@ -40566,6 +40758,16 @@ function abrirCalcTela(id) {
   _calcTela.comissaoPct = Number(o.comissaoPct) || 0;
   _calcTela.margemDesejadaPct = 46;   // margem fixa
   _calcTela.observacoes = o.observacoes || '';
+  // Fluxo guiado (restaura se o cálculo foi salvo já no novo formato)
+  _calcTela.comissaoSel = (o.comissaoSel !== undefined) ? o.comissaoSel : (o.comissaoPct ? String(o.comissaoPct) : '');
+  _calcTela.parceiroId = o.parceiroId || '';
+  _calcTela.clienteId = o.clienteId || '';
+  _calcTela.larguraM = Number(o.larguraM) || 0;
+  _calcTela.alturaM = Number(o.alturaM) || 0;
+  _calcTela.temImpressa = !!o.temImpressa;
+  _calcTela.temLinho = !!o.temLinho;
+  _calcTela.formaPagamento = o.formaPagamento || '';
+  _calcTela.parcelas = Number(o.parcelas) || 1;
   _calcTelaEditId = id;
   _calcAtiva = 'membrana';
   _calcTelaView = 'calc';
