@@ -682,13 +682,21 @@ function emptyState(icon, title, description, ctaLabel, onCta) {
   return wrap;
 }
 
+let _renderedPage = null; // última página renderizada — distingue refresh (mesma) de navegação (outra)
 function renderPage(id) {
   const c = $('#content');
-  c.scrollTop = 0;
+  // Refresh da MESMA página → preserva rolagem e não re-anima (evita flash/pulo pro topo).
+  // Navegação pra OUTRA página → volta ao topo com fade suave.
+  const mesmaPagina = (id === _renderedPage);
+  const scrollAntes = mesmaPagina ? c.scrollTop : 0;
   c.innerHTML = '';
-  const wrap = el('<div class="fade-in"></div>');
+  const wrap = el('<div' + (mesmaPagina ? '' : ' class="fade-in"') + '></div>');
   c.appendChild(wrap);
   (RENDERERS[id] || renderStub)(wrap);
+  // Restaura a rolagem (sync + no próximo frame, caso o layout assente depois).
+  c.scrollTop = mesmaPagina ? scrollAntes : 0;
+  if (mesmaPagina && scrollAntes) requestAnimationFrame(() => { c.scrollTop = scrollAntes; });
+  _renderedPage = id;
 }
 
 // ====== DASHBOARD ======
