@@ -40131,8 +40131,18 @@ function _calcRenderMembrana(parent) {
   tabs.appendChild(tCalc); tabs.appendChild(tHist);
   parent.appendChild(tabs);
 
-  const body = el('<div></div>');
+  const body = el('<div id="ct-body"></div>');
   parent.appendChild(body);
+  if (_calcTelaView === 'historico') _calcTelaRenderHistorico(body);
+  else _calcTelaRenderCalc(body);
+}
+
+// Re-renderiza SÓ o corpo da calc (sem renderPage/fade) — preserva rolagem e não pisca.
+// Usado pelas ações internas (selects do Início, toggles, subabas, itens do estoque).
+function _calcRerender() {
+  const body = document.getElementById('ct-body');
+  if (!body) { renderPage('calc-tela'); return; }   // fallback se a estrutura mudou
+  body.innerHTML = '';
   if (_calcTelaView === 'historico') _calcTelaRenderHistorico(body);
   else _calcTelaRenderCalc(body);
 }
@@ -40221,7 +40231,7 @@ function _calcMembIrAba(aba) {
   if (_calcMembAba === aba) return;
   _calcTelaLer();
   _calcMembAba = aba;
-  renderPage('calc-tela');
+  _calcRerender();
 }
 
 // Liga/desliga uma seção (LED ou Serviço) preservando o que já foi digitado.
@@ -40233,7 +40243,7 @@ function _calcToggleSecao(sec, on) {
     _calcTela.led.m2 = Number(_calcTela.tela && _calcTela.tela.qtd) || 0;   // vem da Membrana TechFrame
   }
   if (sec === 'servico') _calcTela.temServico = on;
-  renderPage('calc-tela');
+  _calcRerender();
 }
 
 // Picker de produto do estoque (Fonte/Fita) — traz o custo; venda sugerida do cadastro.
@@ -40270,7 +40280,7 @@ function _calcAbrirEstoque(tipo) {
         if (!Array.isArray(_calcTela.led[tipo])) _calcTela.led[tipo] = [];
         _calcTela.led[tipo].push({ produtoId: p.id, nome: p.nome || p.sku || 'Item', qtd: 1, custo: custoDe(p), venda: vendaDe(p) });
         m.close();
-        renderPage('calc-tela');
+        _calcRerender();
       };
     });
   };
@@ -40284,7 +40294,7 @@ function _calcAbrirEstoque(tipo) {
 function _calcRemoverEstoque(tipo, idx) {
   _calcTelaLer();
   if (_calcTela.led && Array.isArray(_calcTela.led[tipo])) _calcTela.led[tipo].splice(idx, 1);
-  renderPage('calc-tela');
+  _calcRerender();
 }
 
 // Aba "Orçamento" — resumo + forma de pagamento/parcelas + gerar (botão minimalista).
@@ -40706,13 +40716,13 @@ function _calcTelaToggleAcab(key, on) {
   const m2 = +(((Number(s.larguraM) || 0) * (Number(s.alturaM) || 0)).toFixed(2));
   if (key === 'impressa') { s.temImpressa = on; s.impressa.qtd = on ? m2 : 0; }
   if (key === 'linho')    { s.temLinho = on;    s.linho.qtd = on ? m2 : 0; }
-  renderPage('calc-tela');
+  _calcRerender();
 }
 
 // Etapa Início: ao escolher comissão/parceiro/cliente, re-renderiza pra liberar a medida.
 function _calcTelaGate() {
   _calcTelaLer();
-  renderPage('calc-tela');
+  _calcRerender();
 }
 
 function _calcTelaLimpar() {
